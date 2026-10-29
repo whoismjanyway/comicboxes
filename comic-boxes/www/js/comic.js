@@ -10,6 +10,9 @@
 //
 // Converting at import time means the reader only ever deals with CBZ or PDF.
 
+import { LazyZip, writeZip } from './zip.js';
+import { lazyRar } from './rar.js';
+
 export const IMAGE_RE = /\.(jpe?g|png|gif|webp|avif|bmp|jxl)$/i;
 export const COMIC_RE = /\.(cbz|zip|cbr|rar|cb7|7z|cbt|tar|pdf|epub)$/i;
 const LIBARCHIVE_RE = /\.(cbr|rar|cb7|7z|cbt|tar)$/i;
@@ -95,6 +98,16 @@ export async function openBook(blob, format = 'cbz') {
       close: () => doc.close(),
     };
   }
+  // Read pages one at a time straight from storage (low memory).
+  const lazy = await lazyImages(blob);
+  if (lazy) {
+    return {
+      count: lazy.entries.length,
+      page: (i) => lazy.zip.read(lazy.entries[i], mimeFor(lazy.entries[i].name)),
+      close() {},
+    };
+  }
+  // Fallback for unusual zip files.
   // eslint-disable-next-line no-undef
   const zip = await JSZip.loadAsync(blob);
   const entries = imageEntries(zip);
@@ -106,6 +119,17 @@ export async function openBook(blob, format = 'cbz') {
     },
     close() {},
   };
+}
+
+// Opens a zip without loading it into memory. Returns null if it needs the full JSZip reader.
+async function lazyImages(blob) {
+  let zip;
+  try { zip = await LazyZip.open(blob); } catch { return null; }
+  const entries = zip.entries
+    .filter((e) => !e.dir && IMAGE_RE.test(e.name) && !isJunk(e.name))
+    .sort((a, b) => naturalCompare(a.name, b.name));
+  if (!zip.canRead(entries)) return null;
+  return { zip, entries };
 }
 
 function imageEntries(zip) {
@@ -146,14 +170,12 @@ export async function makeCover(blob) {
 
 // ---------- packing images into a CBZ ----------
 async function packCbz(images) {
-  // eslint-disable-next-line no-undef
-  const zip = new JSZip();
-  const pad = String(images.length).length;
-  images.forEach((img, i) => {
-    zip.file(`${String(i + 1).padStart(Math.max(3, pad), '0')}.${extOf(img.name) || 'jpg'}`, img.blob);
-  });
-  // Images are already compressed, so "STORE" is fast and just as small.
-  return zip.generateAsync({ type: 'blob', compression: 'STORE', mimeType: 'application/vnd.comicbook+zip' });
+  const pad = Math.max(3, String(images.length).length);
+  // Images are already compressed, so they're stored as-is (fast, same size, low memory).
+  return writeZip(images.map((img, i) => ({
+    name: `${String(i + 1).padStart(pad, '0')}.${extOf(img.name) || 'jpg'}`,
+    blob: img.blob,
+  })), 'application/vnd.comicbook+zip');
 }
 
 async function finish(blob, format, source, firstPage, pages) {
@@ -163,6 +185,12 @@ async function finish(blob, format, source, firstPage, pages) {
 
 // ---------- the different formats ----------
 async function fromZip(file, source) {
+  const lazy = await lazyImages(file);
+  if (lazy) {
+    if (!lazy.entries.length) throw new ImportError(`${file.name} has no pages inside.`);
+    const first = await lazy.zip.read(lazy.entries[0], mimeFor(lazy.entries[0].name));
+    return finish(file, 'cbz', source, first, lazy.entries.length);
+  }
   // eslint-disable-next-line no-undef
   const zip = await JSZip.loadAsync(file);
   const entries = imageEntries(zip);
@@ -172,6 +200,21 @@ async function fromZip(file, source) {
 }
 
 async function fromLibarchive(file) {
+  // Fast path: most CBR files store pages uncompressed, so they can be copied out one by one.
+  if (/\.(cbr|rar)$/i.test(file.name)) {
+    const rar = await lazyRar(file);
+    if (rar) {
+      const pages = rar.entries
+        .filter((e) => IMAGE_RE.test(e.name) && !isJunk(e.name))
+        .sort((a, b) => naturalCompare(a.name, b.name));
+      if (pages.length) {
+        const images = [];
+        for (const e of pages) images.push({ name: e.name, blob: await rar.read(e, mimeFor(e.name)) });
+        const cbz = await packCbz(images);
+        return finish(cbz, 'cbz', extOf(file.name).toUpperCase(), images[0].blob, images.length);
+      }
+    }
+  }
   const Archive = await libarchive();
   let arc;
   try {
@@ -189,10 +232,13 @@ async function fromLibarchive(file) {
       .sort((a, b) => naturalCompare(a.name, b.name));
     if (!images.length) throw new ImportError(`${file.name} has no pages inside.`);
     images.forEach((im) => { im.blob = new Blob([im.blob], { type: mimeFor(im.name) }); });
+    // Close the archive first: this frees the memory it used before the new file is built.
+    arc.close();
+    arc = null;
     const cbz = await packCbz(images);
     return finish(cbz, 'cbz', extOf(file.name).toUpperCase(), images[0].blob, images.length);
   } finally {
-    arc.close();
+    arc?.close();
   }
 }
 
@@ -304,19 +350,23 @@ export async function importComic(file) {
 export async function expandFolderZip(file, basePath) {
   if (!/\.zip$/i.test(file.name)) return null;
   let zip;
-  // eslint-disable-next-line no-undef
-  try { zip = await JSZip.loadAsync(file); } catch { return null; }
-  const files = Object.values(zip.files).filter((f) => !f.dir && !isJunk(f.name));
+  try { zip = await LazyZip.open(file); } catch { return null; }
+  const files = zip.entries.filter((f) => !f.dir && !isJunk(f.name));
   if (!files.some((f) => COMIC_RE.test(f.name))) return null;
+  if (!zip.canRead(files)) return null;
 
   // Use the zip's own top folder if everything is inside one, otherwise the zip's name.
   const tops = new Set(files.map((f) => (f.name.includes('/') ? f.name.split('/')[0] : '')));
   const wrapped = tops.size === 1 && !tops.has('');
   const prefix = basePath + (wrapped ? '' : prettyName(file.name) + '/');
-  return files.map((f) => ({
-    path: prefix + f.name,
-    name: f.name.split('/').pop(),
-    size: f._data ? f._data.uncompressedSize : 0,
-    load: async () => new File([await f.async('blob')], f.name.split('/').pop()),
-  }));
+  return files.map((f) => {
+    const name = f.name.split('/').pop();
+    return {
+      path: prefix + f.name,
+      name,
+      size: f.size,
+      // Only this one comic is read out of the zip, when it's its turn.
+      load: async () => new File([await zip.read(f)], name),
+    };
+  });
 }

@@ -137,6 +137,12 @@ async function render() {
 
   const childBoxes = lib.kids(currentBox);
   const childComics = lib.issues(currentBox);
+  gridObservers.forEach((o) => o.disconnect());
+  gridObservers = [];
+  // Free cover pictures that aren't in this box anymore.
+  const keep = new Set([...childComics.map((c) => c.id), ...comics.filter((c) => c.lastPage > 0 && !c.done).map((c) => c.id)]);
+  for (const b of childBoxes) for (const c of lib.covers(b.id)) keep.add(c.id);
+  for (const id of [...coverUrls.keys()]) if (!keep.has(id)) forgetCover(id);
   shelf.replaceChildren();
 
   if (!childBoxes.length && !childComics.length) {
@@ -147,9 +153,9 @@ async function render() {
   const isRoot = currentBox === ROOT;
   const builders = {
     boxes: () => childBoxes.length && section('Boxes', childBoxes.length,
-      el('div', { class: 'grid boxes' }, childBoxes.map((b) => boxCard(b, lib)))),
+      lazyGrid('grid boxes', childBoxes, (b) => boxCard(b, lib), 24)),
     issues: () => childComics.length && section(isRoot ? 'Not in a box' : 'Issues', childComics.length,
-      el('div', { class: 'grid issues' }, childComics.map((c) => issueCard(c)))),
+      lazyGrid('grid issues', childComics, (c) => issueCard(c), 48)),
     reading: () => {
       const reading = comics.filter((c) => c.lastPage > 0 && !c.done)
         .sort((a, b) => (b.opened || 0) - (a.opened || 0)).slice(0, settings.get('readingCount'));
@@ -237,6 +243,31 @@ function setTopbarMode(mode) {
   $('themeSwitch').hidden = inSettings;
   $('addBtn').hidden = inSettings;
   document.body.classList.toggle('in-settings', inSettings);
+}
+
+// Draws a long list in batches as you scroll, so a box with hundreds of comics doesn't
+// make the phone decode every cover at once.
+let gridObservers = [];
+function lazyGrid(cls, items, make, batch) {
+  const grid = el('div', { class: cls });
+  let shown = 0;
+  const more = () => {
+    const next = items.slice(shown, shown + batch);
+    shown += next.length;
+    grid.append(...next.map(make));
+    return shown < items.length;
+  };
+  if (!more()) return grid;
+  const sentinel = el('div', { class: 'grid-sentinel', 'aria-hidden': 'true' });
+  const wrap = el('div', {}, grid, sentinel);
+  if (!('IntersectionObserver' in window)) { while (more()); sentinel.remove(); return wrap; }
+  const io = new IntersectionObserver((list) => {
+    if (!list.some((e) => e.isIntersecting)) return;
+    if (!more()) { io.disconnect(); sentinel.remove(); }
+  }, { rootMargin: '1200px 0px' });
+  io.observe(sentinel);
+  gridObservers.push(io);
+  return wrap;
 }
 
 function section(title, count, body) {
@@ -640,10 +671,10 @@ async function importEntries(entriesPromise) {
       toast('No comics found. Comic Boxes reads CBZ, CBR, CB7, CBT, PDF, EPUB and folders of pictures.', 5000);
       return;
     }
-    let lastRender = 0;
+    let lastRender = Date.now();
     const result = await run(p, target, (done, total, name) => {
       showProgress(done, total, name);
-      if (done - lastRender >= 4) { lastRender = done; render(); }
+      if (Date.now() - lastRender > 4000) { lastRender = Date.now(); render(); }
     });
     await render();
     toast(summary(result), result.errors.length ? 7000 : 3600);

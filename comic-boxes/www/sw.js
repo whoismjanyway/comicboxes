@@ -2,12 +2,12 @@
 // Your comics are stored separately (IndexedDB); this only keeps the app's own files.
 //
 // Bump VERSION whenever you change any file in www/ so devices pick up the update.
-const VERSION = 'comic-boxes-v4';
+const VERSION = 'comic-boxes-v5';
 
 // The app itself. Checked online first (with a short time limit) so updates arrive quickly.
 const APP_FILES = [
   './', 'index.html', 'css/styles.css', 'manifest.webmanifest',
-  'js/app.js', 'js/db.js', 'js/comic.js', 'js/importer.js', 'js/reader.js', 'js/settings.js',
+  'js/app.js', 'js/db.js', 'js/comic.js', 'js/importer.js', 'js/reader.js', 'js/settings.js', 'js/zip.js', 'js/rar.js',
 ];
 // Big files that rarely change. Served straight from the cache.
 const STATIC_FILES = [
