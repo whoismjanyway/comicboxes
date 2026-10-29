@@ -2,7 +2,7 @@
 // Your comics are stored separately (IndexedDB); this only keeps the app's own files.
 //
 // Bump VERSION whenever you change any file in www/ so devices pick up the update.
-const VERSION = 'comic-boxes-v5';
+const VERSION = 'comic-boxes-v6';
 
 // The app itself. Checked online first (with a short time limit) so updates arrive quickly.
 const APP_FILES = [

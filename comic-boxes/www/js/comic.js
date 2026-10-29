@@ -46,6 +46,47 @@ function libarchive() {
   return libarchivePromise;
 }
 
+// Phones and tablets give a web page much less memory than a computer. Formats that can only be
+// opened by loading the whole file get a size limit there, so a huge file is skipped with a
+// message instead of making Safari close the page.
+const IS_MOBILE = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent));
+const WHOLE_FILE_LIMIT = IS_MOBILE ? 250e6 : 1500e6;
+const mb = (n) => `${Math.round(n / 1e6)} MB`;
+function checkWholeFile(file, what) {
+  if (file.size > WHOLE_FILE_LIMIT) {
+    throw new ImportError(`${file.name} (${mb(file.size)}) is too big to open on this device as ${what}. `
+      + 'Convert it to CBZ on a computer (see README), then add the CBZ.');
+  }
+}
+
+// Decodes one page from a tiny one-page RAR (see rar.js). One at a time, to keep memory low.
+let decodeQueue = Promise.resolve();
+function decodeRarPage(mini) {
+  const job = decodeQueue.then(async () => {
+    const Archive = await libarchive();
+    const arc = await Archive.open(new File([mini], 'page.rar'));
+    try {
+      await arc.extractFiles();
+      const files = (await arc.getFilesArray()).filter((e) => e.file && e.file.size !== undefined);
+      if (!files.length) throw new Error('page missing');
+      return files[0].file;
+    } finally {
+      arc.close();
+    }
+  });
+  decodeQueue = job.catch(() => {});
+  return job;
+}
+
+async function openRar(blob) {
+  const rar = await lazyRar(blob, decodeRarPage);
+  if (!rar) return null;
+  const pages = rar.entries
+    .filter((e) => IMAGE_RE.test(e.name) && !isJunk(e.name))
+    .sort((a, b) => naturalCompare(a.name, b.name));
+  return { rar, pages };
+}
+
 let pdfjsPromise;
 function pdfjs() {
   pdfjsPromise ??= import('../vendor/pdfjs/pdf.min.js').then((m) => {
@@ -56,9 +97,18 @@ function pdfjs() {
 }
 async function openPdf(blob) {
   const lib = await pdfjs();
-  const data = new Uint8Array(await blob.arrayBuffer());
+  // Give pdf.js the file in pieces as it asks for them, instead of loading it all into memory.
+  const first = new Uint8Array(await blob.slice(0, Math.min(blob.size, 1 << 16)).arrayBuffer());
+  const transport = new lib.PDFDataRangeTransport(blob.size, first);
+  transport.requestDataRange = (begin, end) => {
+    blob.slice(begin, end).arrayBuffer().then((buf) => transport.onDataRange(begin, new Uint8Array(buf)));
+  };
   const task = lib.getDocument({
-    data,
+    range: transport,
+    length: blob.size,
+    rangeChunkSize: 1 << 18,
+    disableAutoFetch: true,
+    disableStream: true,
     wasmUrl: new URL('../vendor/pdfjs/wasm/', import.meta.url).href,
     isEvalSupported: false,
     enableScripting: false,
@@ -81,7 +131,7 @@ async function renderPdfPage(doc, n, targetHeight) {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   await page.render({ canvasContext: ctx, canvas, viewport: vp }).promise;
   page.cleanup();
-  const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.9));
+  const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.88));
   canvas.width = canvas.height = 0; // free memory early on iOS
   return blob;
 }
@@ -91,11 +141,32 @@ export async function openBook(blob, format = 'cbz') {
   if (format === 'pdf') {
     const doc = await openPdf(blob);
     // Sharp enough for a few levels of zoom without using too much memory.
-    const target = Math.min(3200, Math.round(Math.max(screen.height, screen.width) * (devicePixelRatio || 1) * 1.25));
+    const target = Math.min(IS_MOBILE ? 2400 : 3200, Math.round(Math.max(screen.height, screen.width) * (devicePixelRatio || 1) * 1.25));
+    // Draw one page at a time: drawing several big pages at once can use too much memory.
+    let queue = Promise.resolve();
+    let drawn = 0;
     return {
       count: doc.numPages,
-      page: (i) => renderPdfPage(doc, i, target),
+      preload: 1,
+      page(i) {
+        const job = queue.then(async () => {
+          const out = await renderPdfPage(doc, i, target);
+          if (++drawn % 8 === 0) await doc.cleanup().catch(() => {}); // let pdf.js free cached pictures
+          return out;
+        });
+        queue = job.catch(() => {});
+        return job;
+      },
       close: () => doc.close(),
+    };
+  }
+  if (format === 'rar') {
+    const r = await openRar(blob);
+    if (!r) throw new Error('rar unreadable');
+    return {
+      count: r.pages.length,
+      page: (i) => r.rar.read(r.pages[i], mimeFor(r.pages[i].name)),
+      close() {},
     };
   }
   // Read pages one at a time straight from storage (low memory).
@@ -108,6 +179,7 @@ export async function openBook(blob, format = 'cbz') {
     };
   }
   // Fallback for unusual zip files.
+  if (blob.size > WHOLE_FILE_LIMIT) throw new Error('too big for the fallback reader');
   // eslint-disable-next-line no-undef
   const zip = await JSZip.loadAsync(blob);
   const entries = imageEntries(zip);
@@ -191,6 +263,8 @@ async function fromZip(file, source) {
     const first = await lazy.zip.read(lazy.entries[0], mimeFor(lazy.entries[0].name));
     return finish(file, 'cbz', source, first, lazy.entries.length);
   }
+  if (await LazyZip.open(file).then(() => false, () => true)) throw new Error('not a zip'); // e.g. a RAR named .cbz
+  checkWholeFile(file, 'this kind of ZIP');
   // eslint-disable-next-line no-undef
   const zip = await JSZip.loadAsync(file);
   const entries = imageEntries(zip);
@@ -200,21 +274,23 @@ async function fromZip(file, source) {
 }
 
 async function fromLibarchive(file) {
-  // Fast path: most CBR files store pages uncompressed, so they can be copied out one by one.
-  if (/\.(cbr|rar)$/i.test(file.name)) {
-    const rar = await lazyRar(file);
-    if (rar) {
-      const pages = rar.entries
-        .filter((e) => IMAGE_RE.test(e.name) && !isJunk(e.name))
-        .sort((a, b) => naturalCompare(a.name, b.name));
-      if (pages.length) {
-        const images = [];
-        for (const e of pages) images.push({ name: e.name, blob: await rar.read(e, mimeFor(e.name)) });
-        const cbz = await packCbz(images);
-        return finish(cbz, 'cbz', extOf(file.name).toUpperCase(), images[0].blob, images.length);
-      }
+  if (/\.(cbr|rar|cbz|zip)$/i.test(file.name)) {
+    // Most CBRs: keep the original file and read pages one at a time (no conversion, low memory).
+    const r = await openRar(file);
+    if (r) {
+      if (!r.pages.length) throw new ImportError(`${file.name} has no pages inside.`);
+      const first = await r.rar.read(r.pages[0], mimeFor(r.pages[0].name));
+      return finish(file, 'rar', extOf(file.name) === 'rar' ? 'RAR' : 'CBR', first, r.pages.length);
+    }
+    // A "CBR" that is really a ZIP file.
+    const z = await lazyImages(file);
+    if (z) {
+      if (!z.entries.length) throw new ImportError(`${file.name} has no pages inside.`);
+      return finish(file, 'cbz', 'CBR', await z.zip.read(z.entries[0], mimeFor(z.entries[0].name)), z.entries.length);
     }
   }
+  // Solid RARs, 7z and tar: these have to be unpacked whole.
+  checkWholeFile(file, extOf(file.name).toUpperCase());
   const Archive = await libarchive();
   let arc;
   try {
@@ -243,6 +319,7 @@ async function fromLibarchive(file) {
 }
 
 async function fromEpub(file) {
+  checkWholeFile(file, 'EPUB');
   // eslint-disable-next-line no-undef
   const zip = await JSZip.loadAsync(file);
   const ordered = await epubPageOrder(zip);

@@ -286,15 +286,26 @@ mouse wheel or trackpad pinch zooms, `Esc` goes back.
 | Format | Notes |
 |---|---|
 | `.cbz`, `.zip` | Read directly |
-| `.cbr`, `.rar` | RAR 4 and RAR 5. Converted to CBZ when added, so reading is fast |
+| `.cbr`, `.rar` | RAR 4 and RAR 5. Kept as they are; pages are unpacked one at a time while you read, so even 1 GB files work on a phone |
 | `.cb7`, `.7z` | Converted to CBZ when added |
 | `.cbt`, `.tar` | Converted to CBZ when added |
-| `.pdf` | Pages are drawn sharp at your screen's resolution |
+| `.pdf` | Read in pieces and drawn sharp at your screen's resolution |
 | `.epub` | Comic/manga EPUBs with one picture per page, in the book's reading order |
 | Folder of pictures | JPG, PNG, WebP, GIF, AVIF, BMP. Becomes one comic |
 
 Not supported: password-protected archives and PDFs, and text-only (novel) EPUBs.
 A badly damaged file is skipped and the app tells you which one.
+
+### Very large files on a phone
+
+CBZ, CBR and PDF files of any size work, because pages are read one at a time. Three rare kinds
+have to be unpacked whole, so on phones and tablets they're limited to about 250 MB:
+**CB7/7z**, **CBT/tar**, and **"solid" RAR files**. Bigger ones are skipped with a message, and
+the rest of the import carries on.
+
+To add one anyway, unpack it on your Mac first (double-click it, or use the free app
+**The Unarchiver** for RAR/7z), then add the resulting **folder of pictures** with **+ → A folder**.
+A folder of pictures becomes one comic.
 
 ### Storage
 

@@ -126,7 +126,7 @@ export class Reader {
   }
   trimCache(keep) {
     for (const [i, u] of this.urls) {
-      if (Math.abs(i - keep) > 6) { u.then((x) => URL.revokeObjectURL(x)); this.urls.delete(i); }
+      if (Math.abs(i - keep) > (this.archive && this.archive.preload === 1 ? 2 : 6)) { u.then((x) => URL.revokeObjectURL(x)); this.urls.delete(i); }
     }
   }
 
@@ -158,7 +158,8 @@ export class Reader {
 
     // Warm up the next pages so turning feels instant.
     const after = start + idx.length;
-    for (let i = after; i < Math.min(after + 3, this.count); i++) this.url(i);
+    const ahead = this.archive.preload ?? 3;
+    for (let i = after; i < Math.min(after + ahead, this.count); i++) this.url(i);
     if (start > 0) this.url(start - 1);
     this.trimCache(start);
     this.saveProgress(idx[idx.length - 1]);
