@@ -1,0 +1,12 @@
+{
+  "appId": "com.example.comicboxes",
+  "appName": "Comic Boxes",
+  "webDir": "www",
+  "backgroundColor": "#000000",
+  "ios": {
+    "contentInset": "never"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

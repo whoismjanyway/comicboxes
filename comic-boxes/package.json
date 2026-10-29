@@ -1,0 +1,22 @@
+{
+  "name": "comic-boxes",
+  "version": "2.0.0",
+  "private": true,
+  "description": "A simple comic reader for iOS and Android. CBZ, CBR, CB7, CBT, PDF and EPUB comics in boxes inside boxes, with pinch-to-zoom.",
+  "scripts": {
+    "start": "npx --yes serve www -l 5173",
+    "add:android": "npx cap add android",
+    "add:ios": "npx cap add ios",
+    "sync": "npx cap sync",
+    "android": "npx cap sync android && npx cap open android",
+    "ios": "npx cap sync ios && npx cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/ios": "^8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.0.0"
+  }
+}
