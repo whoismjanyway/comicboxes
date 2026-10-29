@@ -14,6 +14,7 @@ boxes (for example a *Fantastic Four* box inside a *Marvel* box).
 - Reader with **pinch-to-zoom**, **double-tap zoom**, swipe or tap to turn pages, a page slider,
   **two-page view** on tablets in landscape, and **Manga** (right-to-left) mode.
 - **Keep reading** row on the home screen picks up where you stopped.
+- **Settings** page: reorder or hide home sections, sorting, cover size, theme and reader options.
 - Works fully offline. Comics are stored only on the device. Nothing is uploaded anywhere.
 
 ---
@@ -241,6 +242,20 @@ Downloads folder over USB.
 The switch next to the **+** button changes between the white and the black theme.
 The first time, the app follows your device's light/dark setting. After you flip the switch,
 it remembers your choice. The reader always uses a black background so pages stand out.
+
+### Settings
+
+Tap the **gear** button at the top. Everything here is saved on the device.
+
+- **Home screen:** change the order of **Boxes**, **Keep reading** and **Not in a box** with the
+  arrows, and hide Keep reading or Not in a box with the switch. Choose how many comics Keep reading shows.
+- **Inside a box:** choose whether the boxes inside it or its issues come first.
+- **Look:** White, Black or Match device theme, and Small / Medium / Large covers.
+- **Sorting:** issues by name, newest added or last read; boxes by name or newest.
+- **Reader:** Manga mode by default, two-page view, tap the edges to turn pages, and keep the
+  screen on while reading.
+- **Library:** see how much space your comics use, mark everything as unread, reset settings,
+  or delete everything.
 
 ### Reading
 

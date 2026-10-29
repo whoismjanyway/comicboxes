@@ -47,6 +47,11 @@ export class Reader {
     if (this.isOpen && this.comic && this.comic.id === comic.id) return;
     if (this.isOpen) this.close();
     this.releaseUrls();
+    // Defaults may have changed in Settings since the last comic.
+    this.spread = prefs.get('spread', true);
+    this.rtl = prefs.get('rtl', false);
+    this.tapTurn = prefs.get('tapTurn', true);
+    this.keepAwake(prefs.get('awake', false));
     this.comic = comic;
     this.isOpen = true;
     this.root.hidden = false;
@@ -71,6 +76,7 @@ export class Reader {
     if (!this.isOpen) return;
     this.isOpen = false;
     this.root.hidden = true;
+    this.keepAwake(false);
     clearTimeout(this.tapTimer);
     this.releaseUrls();
     try { this.archive?.close(); } catch { /* already closed */ }
@@ -80,6 +86,22 @@ export class Reader {
   releaseUrls() {
     for (const u of this.urls.values()) u.then((x) => URL.revokeObjectURL(x)).catch(() => {});
     this.urls.clear();
+  }
+
+  // Keeps the screen from dimming while reading (where the browser allows it).
+  async keepAwake(on) {
+    this.wantAwake = on;
+    if (!on) { try { await this.wakeLock?.release(); } catch { /* already released */ } this.wakeLock = null; return; }
+    if (!('wakeLock' in navigator) || this.wakeLock) return;
+    try {
+      this.wakeLock = await navigator.wakeLock.request('screen');
+      this.wakeLock.addEventListener('release', () => { this.wakeLock = null; });
+    } catch { this.wakeLock = null; }
+    if (!this.wakeListener) {
+      // The lock is dropped when the app goes to the background; take it again on return.
+      this.wakeListener = () => { if (document.visibilityState === 'visible' && this.isOpen && this.wantAwake) this.keepAwake(true); };
+      document.addEventListener('visibilitychange', this.wakeListener);
+    }
   }
 
   // ---------- pages and spreads ----------
@@ -325,7 +347,7 @@ export class Reader {
     clearTimeout(this.tapTimer);
     this.tapTimer = setTimeout(() => {
       const W = this.stage.clientWidth;
-      if (this.scale > 1.05) { this.setChrome(!this.chrome); return; }
+      if (this.scale > 1.05 || this.tapTurn === false) { this.setChrome(!this.chrome); return; }
       if (x < W * 0.28) this.backward();
       else if (x > W * 0.72) this.forward();
       else this.setChrome(!this.chrome);

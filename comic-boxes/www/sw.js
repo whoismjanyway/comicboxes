@@ -1,9 +1,9 @@
 // Offline cache for the app itself (your comics are stored separately in IndexedDB).
 // Bump VERSION whenever you change any file in www/ so phones pick up the update.
-const VERSION = 'comic-boxes-v2';
+const VERSION = 'comic-boxes-v3';
 const FILES = [
   './', 'index.html', 'css/styles.css', 'manifest.webmanifest',
-  'js/app.js', 'js/db.js', 'js/comic.js', 'js/importer.js', 'js/reader.js',
+  'js/app.js', 'js/db.js', 'js/comic.js', 'js/importer.js', 'js/reader.js', 'js/settings.js',
   'fonts/BarlowCondensed-SemiBold.woff', 'fonts/BarlowCondensed-ExtraBold.woff', 'fonts/PermanentMarker.woff',
   'vendor/jszip.min.js',
   'vendor/libarchive/libarchive.js', 'vendor/libarchive/worker-bundle.js', 'vendor/libarchive/libarchive.wasm',
@@ -24,9 +24,15 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+// Network first, so updates show up right away; the cache is used when offline.
 self.addEventListener('fetch', (e) => {
-  if (e.request.method !== 'GET') return;
+  if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
   e.respondWith(
-    caches.match(e.request, { ignoreSearch: true }).then((hit) => hit || fetch(e.request)),
+    fetch(e.request)
+      .then((res) => {
+        if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(e.request, copy)); }
+        return res;
+      })
+      .catch(() => caches.match(e.request, { ignoreSearch: true })),
   );
 });

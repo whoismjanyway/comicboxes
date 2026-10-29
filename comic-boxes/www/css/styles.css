@@ -375,3 +375,79 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- Cover size setting ---------- */
+[data-size="small"] .grid.boxes { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+[data-size="small"] .grid.issues { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 22px 10px; }
+[data-size="large"] .grid.boxes { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+[data-size="large"] .grid.issues { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+@media (min-width: 700px) {
+  [data-size="small"] .grid.boxes { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+  [data-size="small"] .grid.issues { grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); }
+  [data-size="large"] .grid.boxes { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+  [data-size="large"] .grid.issues { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+}
+[data-size="small"] .issue-title { font-size: 12px; }
+[data-size="small"] .sticker { font-size: 11px; }
+
+/* ---------- Settings ---------- */
+.settings { max-width: 640px; margin: 0 auto; }
+.set-section { margin-top: 26px; }
+.set-note { margin: -6px 2px 12px; color: var(--muted); font-size: 14px; }
+.set-group {
+  background: var(--raised); border: 1px solid var(--line); border-radius: 16px; overflow: hidden;
+}
+.set-row {
+  display: flex; align-items: center; gap: 14px; min-height: 60px; padding: 12px 16px;
+  border-top: 1px solid var(--line);
+}
+.set-group > .set-row:first-child, .order-list:first-child > .set-row:first-child { border-top: 0; }
+.set-row.stack { flex-wrap: wrap; }
+.set-row.stack .seg { width: 100%; }
+@media (min-width: 700px) { .set-row.stack { flex-wrap: nowrap; } .set-row.stack .seg { width: auto; min-width: 300px; } }
+.set-text { flex: 1; min-width: 0; }
+.set-text b { display: block; font-weight: 600; font-size: 16px; }
+.set-text small { display: block; color: var(--muted); font-size: 13px; line-height: 1.35; margin-top: 2px; }
+
+.order-row .pos {
+  width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  font-family: "Barlow Condensed", "Avenir Next Condensed", sans-serif; font-weight: 800; font-size: 16px;
+  background: var(--ink); color: var(--page);
+}
+.order-row.is-hidden .pos { background: var(--sunken); color: var(--muted); }
+.order-row.is-hidden .set-text b { color: var(--muted); }
+.order-btns { display: flex; gap: 6px; }
+.mini {
+  width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--sunken);
+  display: grid; place-items: center; color: var(--ink);
+}
+.mini[disabled] { opacity: .3; cursor: default; }
+.mini:not([disabled]):active { transform: scale(.94); }
+.toggle-spacer { width: 52px; flex: none; }
+
+.toggle {
+  position: relative; width: 52px; height: 32px; flex: none; padding: 0; border-radius: 16px;
+  border: 0; background: var(--line); transition: background .18s;
+}
+.toggle .knob {
+  position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .35); transition: transform .18s;
+}
+.toggle[aria-checked="true"] { background: var(--red); }
+.toggle[aria-checked="true"] .knob { transform: translateX(20px); }
+.toggle[disabled] { opacity: .4; cursor: default; }
+
+.seg { display: flex; padding: 3px; gap: 3px; border-radius: 12px; background: var(--sunken); }
+.seg button {
+  flex: 1; min-height: 38px; padding: 0 10px; border: 0; border-radius: 9px; background: none;
+  font-size: 14px; font-weight: 600; color: var(--muted); white-space: nowrap;
+}
+.seg button[aria-checked="true"] { background: var(--raised); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .18); }
+
+.set-action {
+  display: block; width: 100%; min-height: 54px; padding: 0 16px; text-align: left;
+  border: 0; border-top: 1px solid var(--line); background: none; font-size: 16px; color: var(--ink);
+}
+.set-action:active, .set-action:hover { background: var(--sunken); }
+.set-action.danger { color: var(--red); }
+.set-about { margin: 28px 2px 0; color: var(--muted); font-size: 13px; text-align: center; }
