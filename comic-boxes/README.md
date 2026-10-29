@@ -1,5 +1,7 @@
 # Comic Boxes
 
+**Use it now:** **[whoismjanyway.github.io/comicboxes](https://whoismjanyway.github.io/comicboxes/)**
+
 A simple comic reader for **iPhone, iPad, Android phones and Android tablets** (and Mac/PC browsers).
 Your comics live in **boxes**, like real comic shop long boxes, and boxes can hold other
 boxes (for example a *Fantastic Four* box inside a *Marvel* box).
