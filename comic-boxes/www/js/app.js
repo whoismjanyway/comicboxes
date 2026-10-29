@@ -588,6 +588,12 @@ async function renderSettings() {
 
       setGroup('Library', null,
         setRow('On this device', `${plural(comics.length, 'comic', 'comics')} in ${plural(boxes.length, 'box', 'boxes')}, using about ${formatBytes(used)}.`, null),
+        (() => {
+          const note = el('small', {}, 'Checking…');
+          const dot = el('span', { class: 'status-dot', 'aria-hidden': 'true' });
+          offlineStatus().then((st) => { note.textContent = st.note; dot.classList.add(st.ready ? 'ok' : 'wait'); });
+          return el('div', { class: 'set-row' }, el('div', { class: 'set-text' }, el('b', {}, 'Offline use'), note), dot);
+        })(),
         el('button', { class: 'set-action', type: 'button', onclick: async () => {
           if (!await confirmSheet('Mark every comic as unread?', 'Reading progress is cleared for all comics. The comics stay.', 'Mark unread')) return;
           for (const c of await db.all('comics')) if (c.lastPage || c.done) await db.put('comics', { ...c, lastPage: 0, done: false });
@@ -682,7 +688,35 @@ document.addEventListener('gesturestart', (e) => e.preventDefault());
 
 // ---------- start ----------
 db.askPersistentStorage();
-if ('serviceWorker' in navigator && location.protocol === 'https:' && !window.Capacitor) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+// Offline support. (Not needed inside the installed iOS/Android app, which has its files built in.)
+if ('serviceWorker' in navigator && isSecureContext && !window.Capacitor) {
+  navigator.serviceWorker.register('sw.js', { scope: './' })
+    .then((reg) => reg.update().catch(() => {}))
+    .catch((e) => console.warn('Offline support unavailable:', e));
+}
+
+// Asks the service worker whether the app is fully saved for offline use.
+function offlineStatus() {
+  return new Promise((resolve) => {
+    if (window.Capacitor) { resolve({ ready: true, note: 'Built into the app.' }); return; }
+    if (!('serviceWorker' in navigator) || !isSecureContext) {
+      resolve({ ready: false, note: 'This browser can\'t save the app for offline use.' }); return;
+    }
+    const sw = navigator.serviceWorker;
+    const timer = setTimeout(() => resolve({ ready: false, note: 'Still saving. Keep the app open on Wi-Fi for a moment, then check again.' }), 8000);
+    sw.ready.then((reg) => {
+      const onMsg = (e) => {
+        if (!e.data || e.data.type !== 'offline-status') return;
+        sw.removeEventListener('message', onMsg);
+        clearTimeout(timer);
+        const controlled = !!sw.controller;
+        if (e.data.missing.length) resolve({ ready: false, note: `${e.data.missing.length} files still need to download. Open the app on Wi-Fi and check again.` });
+        else if (!controlled) resolve({ ready: false, note: 'Saved. Close the app and open it again once to finish.' });
+        else resolve({ ready: true, note: 'Ready. The app and your comics open without internet.' });
+      };
+      sw.addEventListener('message', onMsg);
+      (reg.active || reg.waiting || reg.installing).postMessage('offline-status');
+    });
+  });
 }
 route();

@@ -95,6 +95,13 @@ Open it from the new icon. It runs full screen like a normal app.
 
 > Each device keeps its own library. Comics you add on your iPad don't appear on your phone.
 
+**Using it without internet:** after adding the icon, open the app **from the icon once while
+online** and wait a few seconds; that saves it for offline use. Check **Settings → Library →
+Offline use**: a green dot means it's ready. After that it opens with no Wi-Fi or data.
+
+> On iPhone and iPad, the home-screen app and Safari keep **separate** libraries. Add your
+> comics from inside the home-screen app, not from a Safari tab.
+
 ---
 
 ### Option 2 — Build the real app and install it on your own device
