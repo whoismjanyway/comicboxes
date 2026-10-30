@@ -9,11 +9,12 @@ const SAME_WIFI = 'Both devices must be on the same Wi-Fi. Comics go straight fr
 // ui: { el, openSheet, closeSheet, lockSheet, toast, render, formatBytes, plural }
 function session(ui) {
   const s = {
-    link: null, stream: null, stopScan: null, unwatch: null, wake: null, done: false,
+    link: null, stream: null, mic: null, stopScan: null, unwatch: null, wake: null, done: false,
     cleanup() {
       s.done = true;
       s.stopScan?.(); s.stopScan = null;
       stopCamera(s.stream); s.stream = null;
+      stopCamera(s.mic); s.mic = null;
       s.unwatch?.(); s.unwatch = null;
       s.link?.close(); s.link = null;
       s.wake?.release?.().catch?.(() => {}); s.wake = null;
@@ -29,8 +30,9 @@ function session(ui) {
       const msg = e && e.message ? e.message : String(e);
       s.cleanup();
       s.done = false;
-      s.show(title, ui.el('p', { class: 'xfer-text' }, msg),
-        ui.el('div', { class: 'row' }, ui.el('button', { class: 'btn primary', type: 'button', onclick: () => { s.done = true; ui.closeSheet(); } }, 'OK')));
+      const ok = ui.el('button', { class: 'btn primary', type: 'button', onclick: () => { s.done = true; ui.closeSheet(); } }, 'OK');
+      if (e && e.diag) s.show('Couldn\'t connect', ...connectHelp(ui, e.diag), ui.el('div', { class: 'row' }, ok));
+      else s.show(title, ui.el('p', { class: 'xfer-text' }, msg), ui.el('div', { class: 'row' }, ok));
       s.done = true;
     },
     async keepAwake() {
@@ -132,6 +134,38 @@ function blockedByNetwork(ui, title) {
 const describe = (ui, n, boxes, bytes) =>
   [ui.plural(n, 'issue', 'issues'), boxes > 1 ? `in ${ui.plural(boxes, 'box', 'boxes')}` : null, ui.formatBytes(bytes)].filter(Boolean).join(', ').replace(/, in /, ' in ');
 
+// ---------- when two devices can't reach each other ----------
+const isMac = () => /Macintosh/.test(navigator.userAgent) && !(navigator.maxTouchPoints > 1);
+const browserName = () => (/Edg\//.test(navigator.userAgent) ? 'Microsoft Edge' : /Firefox\//.test(navigator.userAgent) ? 'Firefox'
+  : /Chrome\//.test(navigator.userAgent) ? 'Google Chrome' : /Safari\//.test(navigator.userAgent) ? 'Safari' : 'your browser');
+
+function connectHelp(ui, diag) {
+  const tips = [];
+  const tip = (...t) => tips.push(ui.el('li', {}, ...t));
+  const hidden = (k) => k.includes('name') && !k.includes('address');
+  if (!transfer.exactAddress.on && hidden(diag.mine)) {
+    tip(ui.el('b', {}, 'Use this device\'s exact address. '), 'Your browser hid this device\'s Wi-Fi address behind a private name, and many routers don\'t pass those names between devices. Tap the button below, then send again. Doing it on one of the two devices is enough.');
+  }
+  if (isMac()) {
+    tip(ui.el('b', {}, 'On a Mac: '), 'open System Settings → Privacy & Security → ', ui.el('b', {}, 'Local Network'), ` and turn on ${browserName()}. Then quit and reopen the browser. Do it on both Macs.`);
+  }
+  tip(ui.el('b', {}, 'Turn off any VPN '), 'on both devices, including VPN extensions in the browser.');
+  tip(ui.el('b', {}, 'Same Wi-Fi name on both. '), 'Not a guest network: those keep devices apart. A phone\'s hotspot works if the home Wi-Fi doesn\'t.');
+  const nodes = [
+    ui.el('p', { class: 'xfer-text' }, 'The two devices found each other, but couldn\'t reach each other over the Wi-Fi. Try these, then send again:'),
+    ui.el('ol', { class: 'xfer-tips' }, tips),
+  ];
+  if (!transfer.exactAddress.on) {
+    nodes.push(ui.el('button', { class: 'btn wide', type: 'button', onclick: (ev) => {
+      transfer.exactAddress.set(true);
+      ev.target.replaceWith(ui.el('p', { class: 'xfer-small' }, 'Done. Send again: your browser will ask to use the microphone. Allow it. Nothing is recorded; it only lets the browser share this device\'s Wi-Fi address, and it turns off once connected.'));
+    } }, 'Use this device\'s exact address'));
+  }
+  const said = (k) => (!k.length ? 'nothing' : k.map((m) => (m === 'name' ? 'a hidden name' : 'its Wi-Fi address')).join(' and '));
+  nodes.push(ui.el('p', { class: 'xfer-small' }, `Details: this device offered ${said(diag.mine)}; the other device offered ${said(diag.theirs)}; ${diag.heard ? 'they heard each other, but the link broke' : 'they never heard each other'}.`));
+  return nodes;
+}
+
 // ---------- the guide ----------
 // The three moments both devices go through, shown at the top of each screen.
 const STEPS = ['Code', 'Connect', 'Accept'];
@@ -196,6 +230,7 @@ export async function sendFlow(ui, item) {
   const what = describe(ui, p.comics.length, p.boxes.length, p.bytes);
   s.show(title, stepper(ui, 1), status(ui, 'Getting ready…'), ui.el('div', { class: 'row' }, cancelBtn(ui, s)));
 
+  s.mic = await transfer.exactAddress.open();
   try { s.link = await transfer.makeOffer(); } catch (e) { s.fail(e); return; }
   if (s.done) return;
   s.watch();
@@ -266,6 +301,7 @@ export async function sendFlow(ui, item) {
   async function connect() {
     try {
       const dc = await s.link.open();
+      stopCamera(s.mic); s.mic = null;
       const pin = await s.link.pairCode();
       s.show(title, stepper(ui, 3),
         ui.el('p', { class: 'xfer-text' }, 'Connected. Check that the other device shows this number, and tap ', ui.el('b', {}, 'Accept'), ' there.'),
@@ -309,6 +345,7 @@ export async function receiveFlow(ui, { isBusy }) {
   // Shared by typing and scanning. `details` is the sender's connection details; `code` is set
   // when they can also be answered through the relay.
   const answerWith = async (details, code) => {
+    if (!s.stream) s.mic = await transfer.exactAddress.open();
     s.link = await transfer.makeAnswer(details);
     stopCamera(s.stream); s.stream = null;
     s.stopScan?.(); s.stopScan = null;
@@ -403,6 +440,7 @@ export async function receiveFlow(ui, { isBusy }) {
   async function run() {
     try {
       const dc = await s.link.open();
+      stopCamera(s.mic); s.mic = null;
       const pin = await s.link.pairCode();
       const bar = progressView(ui, 'Receiving. Keep both screens on and Comic Boxes open.');
       let what = '';
