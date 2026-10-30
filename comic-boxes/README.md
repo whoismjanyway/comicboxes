@@ -36,6 +36,9 @@ comic-boxes/
     ├── js/comic.js         ← reading every comic format
     ├── js/reader.js        ← the reader: paging and zoom
     ├── js/db.js            ← on-device storage (IndexedDB)
+    ├── js/share.js         ← Send to / receive from another device: the screens
+    ├── js/transfer.js      ← …the Wi-Fi-only connection and what gets sent
+    ├── js/qr.js            ← …QR codes for pairing the two devices
     ├── fonts/              ← Barlow Condensed + Permanent Marker (free licenses included)
     ├── vendor/             ← JSZip, libarchive.js (RAR/7z/tar), pdf.js (PDF), with licenses
     ├── manifest.webmanifest, sw.js  ← home-screen install and offline use
@@ -329,6 +332,29 @@ whether an update exists. It doesn't download the update unless you allow it.
 > downloads it, and that can use mobile data. To prevent that, turn off **iCloud Drive** under
 > **Settings → Mobile Data** (Datos móviles) on the iPhone.
 
+### Sending comics to another device
+
+Send a whole box (with the boxes inside it) or a single issue from one phone, tablet or computer
+to another. **It only works over Wi-Fi, and never uses mobile data or the internet.**
+
+1. Put both devices on the **same Wi-Fi** (a phone's personal hotspot also works).
+2. On the device **getting** the comics, tap **+ → From another device**. It shows a QR code.
+3. On the device **sending** them, tap **⋯** on a box or issue → **Send to another device**,
+   and scan that QR code. The sender then shows its own QR code.
+4. Scan the sender's code with the receiving device.
+5. Both screens show the same 4-digit number. Check it, then tap **Accept** on the receiver.
+
+Keep both screens on and the app open until it finishes. Reading progress comes along. A box
+with the same name on the receiving device is joined instead of duplicated, and issues it
+already has are skipped, so if a transfer stops part way, just send it again to get the rest.
+No camera (a laptop)? Under each code there's a text version to copy and paste.
+
+How it stays off mobile data: the two devices connect **directly to each other** with no server
+in between, and the codes only carry home-network addresses (like 192.168.x.x), so the
+connection can only form inside one Wi-Fi network. Android phones on mobile data are stopped
+before anything starts, and a transfer stops if the phone switches to mobile data. Guest and
+public Wi-Fi networks often keep devices apart; a home network or a phone's hotspot works.
+
 ### Storage
 
 Comics are copied into the app's private storage on the device (CBR/CB7/CBT/EPUB are
@@ -359,4 +385,5 @@ to preview phone and tablet sizes.
 
 Bundled open-source parts (licenses are in the same folders):
 JSZip (MIT), libarchive.js (MIT, a WebAssembly build of libarchive), pdf.js (Apache 2.0),
+qrcode-generator (MIT) and jsQR (Apache 2.0) for the QR codes,
 Barlow Condensed (SIL Open Font License), Permanent Marker (Apache 2.0).
