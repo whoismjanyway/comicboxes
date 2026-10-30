@@ -5,7 +5,7 @@ import { entriesFromFiles, entriesFromDrop, plan, run } from './importer.js';
 import { Reader } from './reader.js';
 import * as settings from './settings.js';
 import { SECTIONS } from './settings.js';
-import { sendFlow, receiveFlow } from './share.js';
+import { sendFlow, receiveFlow, showGuide } from './share.js';
 
 const $ = (id) => document.getElementById(id);
 const shelf = $('shelf');
@@ -344,7 +344,8 @@ function emptyState(isRoot) {
     el('div', { class: 'btns' },
       el('button', { class: 'btn primary', type: 'button', onclick: () => folderInput.click() }, svg(ICON.folder), 'Add a folder'),
       el('button', { class: 'btn', type: 'button', onclick: () => fileInput.click() }, svg(ICON.file), 'Add comic files'),
-      el('button', { class: 'btn', type: 'button', onclick: newBox }, svg(ICON.box), 'New empty box')));
+      el('button', { class: 'btn', type: 'button', onclick: newBox }, svg(ICON.box), 'New empty box'),
+      isRoot && el('button', { class: 'btn', type: 'button', onclick: receiveComics }, svg(ICON.receive), 'Get comics from another device')));
 }
 
 // ---------- sheet: menus and dialogs ----------
@@ -436,6 +437,8 @@ const shareUI = {
   lockSheet: (on) => { sheetLocked = on; },
 };
 
+const receiveComics = () => receiveFlow(shareUI, { isBusy: () => busy });
+
 function addMenu() {
   const where = currentBox === ROOT ? 'My boxes' : $('title').textContent;
   openSheet([
@@ -443,7 +446,7 @@ function addMenu() {
     bigMenuBtn(ICON.folder, 'A folder', 'Every comic inside is added. Folders inside it become boxes inside this box.', () => folderInput.click(), true),
     bigMenuBtn(ICON.file, 'Comic files', 'CBZ, CBR, CB7, CBT, PDF or EPUB. Pick as many as you like.', () => fileInput.click()),
     bigMenuBtn(ICON.box, 'New empty box', 'Name it now and fill it later.', newBox),
-    bigMenuBtn(ICON.receive, 'From another device', 'Get boxes or issues sent from a phone, tablet or computer on the same Wi-Fi.', () => receiveFlow(shareUI, { isBusy: () => busy })),
+    bigMenuBtn(ICON.receive, 'Receive comics', 'From another phone, tablet or computer on the same Wi-Fi.', receiveComics),
     el('p', { class: 'hint' }, 'Phone can\'t pick folders? Zip the folder and add the .zip under Comic files. It turns into boxes the same way.'),
   ]);
 }
@@ -657,6 +660,10 @@ async function renderSettings() {
               el('div', { class: 'set-text' }, el('b', {}, 'Check for updates'), status),
               btn)));
       })(),
+
+      setGroup('Sending comics', 'Send boxes and issues to another phone, tablet or computer on the same Wi-Fi. Never over mobile data.',
+        el('button', { class: 'set-action', type: 'button', onclick: () => showGuide(shareUI) }, 'How to send comics to another device'),
+        el('button', { class: 'set-action', type: 'button', onclick: receiveComics }, 'Receive comics')),
 
       setGroup('Library', null,
         setRow('On this device', `${plural(comics.length, 'comic', 'comics')} in ${plural(boxes.length, 'box', 'boxes')}, using about ${formatBytes(used)}.`, null),

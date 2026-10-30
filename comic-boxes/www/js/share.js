@@ -131,45 +131,106 @@ function blockedByNetwork(ui, title) {
 const describe = (ui, n, boxes, bytes) =>
   [ui.plural(n, 'issue', 'issues'), boxes > 1 ? `in ${ui.plural(boxes, 'box', 'boxes')}` : null, ui.formatBytes(bytes)].filter(Boolean).join(', ').replace(/, in /, ' in ');
 
+// ---------- the guide ----------
+// The three moments both devices go through, shown at the top of each screen so it's clear
+// which device does what right now.
+const STEPS = ['Sender shows a code', 'Receiver shows a code', 'Accept'];
+function stepper(ui, at) {
+  return ui.el('ol', { class: 'xfer-steps', 'aria-label': `Step ${at} of 3` },
+    STEPS.map((label, i) => ui.el('li', { class: i + 1 < at ? 'done' : i + 1 === at ? 'now' : '', 'aria-current': i + 1 === at ? 'step' : false },
+      ui.el('span', { class: 'n' }, String(i + 1)), ui.el('span', { class: 'l' }, label))));
+}
+
+// Two devices side by side with the comics moving between them over Wi-Fi.
+function guidePicture(ui) {
+  const box = ui.el('div', { class: 'xfer-pic', 'aria-hidden': 'true' });
+  box.innerHTML = `<svg viewBox="0 0 260 96" class="xfer-pic-svg">
+    <rect x="8" y="6" width="54" height="84" rx="9" class="ph"/><rect x="15" y="16" width="40" height="58" rx="3" class="scr"/>
+    <rect x="22" y="24" width="26" height="36" rx="2" class="cv"/><rect x="22" y="64" width="26" height="4" rx="2" class="ln"/>
+    <rect x="198" y="6" width="54" height="84" rx="9" class="ph"/><rect x="205" y="16" width="40" height="58" rx="3" class="scr"/>
+    <rect x="212" y="24" width="26" height="36" rx="2" class="cv dim"/><rect x="212" y="64" width="26" height="4" rx="2" class="ln"/>
+    <path d="M80 48h96" class="ar"/><path d="M168 40l10 8-10 8" class="ar ah"/>
+    <path d="M114 24a22 22 0 0 1 32 0M119 30a14 14 0 0 1 22 0" class="wf"/><circle cx="130" cy="36" r="2.6" class="wfd"/>
+  </svg>`;
+  return box;
+}
+
+// The how-to, used on its own (Settings) and folded inside the send and receive screens.
+export function guideSteps(ui) {
+  const item = (n, ...text) => ui.el('li', {}, ui.el('span', { class: 'n' }, String(n)), ui.el('p', {}, ...text));
+  return ui.el('div', { class: 'xfer-guide' },
+    guidePicture(ui),
+    ui.el('ol', {},
+      item(1, ui.el('b', {}, 'Same Wi-Fi. '), 'Put both devices on the same Wi-Fi. A phone\'s hotspot works too.'),
+      item(2, ui.el('b', {}, 'On the device with the comics, '), 'tap ', ui.el('b', {}, '⋯'), ' on a box or issue and choose ', ui.el('b', {}, 'Send to another device'), '. A code appears.'),
+      item(3, ui.el('b', {}, 'On the other device, '), 'tap ', ui.el('b', {}, '+'), ', choose ', ui.el('b', {}, 'Receive comics'), ' and point it at that code. It shows a code back.'),
+      item(4, ui.el('b', {}, 'Back on the first device, '), 'tap ', ui.el('b', {}, 'Scan its code'), ' and point it at the other screen.'),
+      item(5, ui.el('b', {}, 'Accept. '), 'Both screens show the same 4-digit number. Tap ', ui.el('b', {}, 'Accept'), ' on the receiving device and keep both screens on until it finishes.')),
+    ui.el('p', { class: 'xfer-small' }, 'Comics go straight from one device to the other. It never uses mobile data or the internet. Issues the other device already has are skipped, so if it stops part way, just send again.'));
+}
+
+export function showGuide(ui) {
+  ui.openSheet([ui.el('h3', {}, 'Send comics to another device'), guideSteps(ui),
+    ui.el('div', { class: 'row' }, ui.el('button', { class: 'btn primary', type: 'button', onclick: ui.closeSheet }, 'Got it'))]);
+}
+
+const helpFold = (ui) => ui.el('details', { class: 'xfer-alt xfer-help' }, ui.el('summary', {}, 'How does this work?'), guideSteps(ui));
+
 // ---------- sending ----------
+// The device with the comics goes first: it shows a code, then scans the code the other one shows back.
 export async function sendFlow(ui, item) {
   if (blockedByNetwork(ui, 'Send to another device')) return;
   const p = await transfer.pack(item);
   if (!p.comics.length) { ui.toast('There are no comics in here to send.'); return; }
   const s = session(ui);
+  const title = `Send "${p.title}"`;
   const what = describe(ui, p.comics.length, p.boxes.length, p.bytes);
+  s.show(title, stepper(ui, 1), ui.el('p', { class: 'xfer-small', role: 'status' }, 'Getting ready…'), ui.el('div', { class: 'row' }, cancelBtn(ui, s)));
+
+  // The camera goes on first: it's needed for the second scan, and while it's on, phones put
+  // their exact Wi-Fi address in the code instead of a private name, which connects more reliably.
+  try { s.stream = await openCamera(); } catch { /* the scanner explains and offers a text code */ }
+  if (s.done) return;
+  try { s.link = await transfer.makeOffer(); } catch (e) { s.fail(e); return; }
+  if (s.done) return;
+  s.watch();
 
   const scan = scanner(ui, s, async (code) => {
-    // Make the reply while the camera is still on: phones then share their exact Wi-Fi address.
-    s.link = await transfer.makeAnswer(code);
+    await s.link.finish(code);
     stopCamera(s.stream); s.stream = null;
-    s.watch();
-    s.show(`Send "${p.title}"`,
-      ui.el('p', { class: 'xfer-text' }, ui.el('b', {}, 'Step 2. '), 'Point the other device\'s camera at this code.'),
-      await codeView(ui, s.link.code),
-      ui.el('p', { class: 'xfer-small', role: 'status' }, 'Waiting for the other device…'),
-      ui.el('div', { class: 'row' }, cancelBtn(ui, s)));
+    s.show(title, stepper(ui, 3), ui.el('p', { class: 'xfer-small', role: 'status' }, 'Connecting…'), ui.el('div', { class: 'row' }, cancelBtn(ui, s)));
     connect();
-  }, 'Point this camera at the code on the other device.');
+  }, 'Hold it steady for a moment.');
 
-  s.show(`Send "${p.title}"`,
-    ui.el('p', { class: 'xfer-small' }, what),
-    ui.el('p', { class: 'xfer-text' }, ui.el('b', {}, 'Step 1. '), 'On the other device open Comic Boxes, tap ', ui.el('b', {}, '+'), ' and choose ', ui.el('b', {}, 'From another device'), '. Then scan the code it shows.'),
+  // One screen with two halves, so the camera keeps running while you switch between them.
+  const steps = ui.el('div', {}, stepper(ui, 1));
+  let scanning = false;
+  const mine = ui.el('div', {},
+    ui.el('p', { class: 'xfer-text' }, 'On the other device, open Comic Boxes, tap ', ui.el('b', {}, '+'), ' and choose ', ui.el('b', {}, 'Receive comics'), '. Point it at this code.'),
+    await codeView(ui, s.link.code),
+    ui.el('button', { class: 'btn primary wide', type: 'button', onclick: () => flip(true) }, 'It shows a code. Scan its code'));
+  const theirs = ui.el('div', { hidden: '' },
+    ui.el('p', { class: 'xfer-text' }, 'Point this camera at the code on the other device.'),
     scan.node,
-    ui.el('p', { class: 'xfer-small' }, SAME_WIFI),
-    ui.el('div', { class: 'row' }, cancelBtn(ui, s)));
-  scan.start();
+    ui.el('button', { class: 'btn wide', type: 'button', onclick: () => flip(false) }, 'Show my code again'));
+  const flip = (toScan) => {
+    mine.hidden = toScan;
+    theirs.hidden = !toScan;
+    steps.replaceChildren(stepper(ui, toScan ? 2 : 1));
+    if (toScan && !scanning) { scanning = true; scan.start(); }
+  };
+  s.show(title, steps, ui.el('p', { class: 'xfer-small' }, what), mine, theirs,
+    ui.el('p', { class: 'xfer-small' }, SAME_WIFI), helpFold(ui), ui.el('div', { class: 'row' }, cancelBtn(ui, s)));
 
   async function connect() {
     try {
       const dc = await s.link.open();
       const pin = await s.link.pairCode();
-      s.show(`Send "${p.title}"`,
-        ui.el('p', { class: 'xfer-text' }, 'Connected. Tap ', ui.el('b', {}, 'Accept'), ' on the other device.'),
-        ui.el('p', { class: 'xfer-pin', 'aria-label': `Check code ${pin.split('').join(' ')}` }, pin),
-        ui.el('p', { class: 'xfer-small' }, 'The other device shows the same number.'),
+      s.show(title, stepper(ui, 3),
+        ui.el('p', { class: 'xfer-text' }, 'Connected. Check that the other device shows this number, and tap ', ui.el('b', {}, 'Accept'), ' there.'),
+        ui.el('p', { class: 'xfer-pin', 'aria-label': `Check number ${pin.split('').join(' ')}` }, pin),
         ui.el('div', { class: 'row' }, cancelBtn(ui, s)));
-      const bar = progressView(ui, `Sending to the other device. Keep both screens on and Comic Boxes open.`);
+      const bar = progressView(ui, 'Sending. Keep both screens on and Comic Boxes open.');
       let started = false;
       const result = await transfer.send(dc, s.link.pc, p, (...a) => {
         if (!started) {
@@ -196,35 +257,31 @@ export async function sendFlow(ui, item) {
 }
 
 // ---------- receiving ----------
+// Scan the sender's code, show a code back, then accept.
 export async function receiveFlow(ui, { isBusy }) {
   if (isBusy()) { ui.toast('Still adding comics. Try again when that finishes.'); return; }
   if (blockedByNetwork(ui, 'Receive comics')) return;
   const s = session(ui);
-  s.show('Receive comics', ui.el('p', { class: 'xfer-small', role: 'status' }, 'Getting ready…'), ui.el('div', { class: 'row' }, cancelBtn(ui, s)));
-
-  // Turn the camera on first: it's needed for step 2, and with it on, phones share their exact
-  // Wi-Fi address in the code instead of a private name, which connects more reliably.
-  try { s.stream = await openCamera(); } catch { /* the scanner below explains and offers text codes */ }
-  if (s.done) return;
-  try {
-    s.link = await transfer.makeOffer();
-  } catch (e) { s.fail(e, 'Can\'t receive'); return; }
-  if (s.done) return;
-  s.watch();
+  const title = 'Receive comics';
 
   const scan = scanner(ui, s, async (code) => {
-    await s.link.finish(code);
+    // Answer while the camera is still on (see sendFlow), then turn it off.
+    s.link = await transfer.makeAnswer(code);
     stopCamera(s.stream); s.stream = null;
-    s.show('Receive comics', ui.el('p', { class: 'xfer-small', role: 'status' }, 'Connecting…'), ui.el('div', { class: 'row' }, cancelBtn(ui, s)));
+    s.watch();
+    s.show(title, stepper(ui, 2),
+      ui.el('p', { class: 'xfer-text' }, 'Now on the sending device, tap ', ui.el('b', {}, 'Scan its code'), ' and point it at this code.'),
+      await codeView(ui, s.link.code),
+      ui.el('p', { class: 'xfer-small', role: 'status' }, 'Waiting for the other device…'),
+      ui.el('div', { class: 'row' }, cancelBtn(ui, s)));
     run();
-  }, 'Then point this camera at the code that appears on the other device.');
+  }, 'Hold it steady for a moment.');
 
-  s.show('Receive comics',
-    ui.el('p', { class: 'xfer-text' }, ui.el('b', {}, 'Step 1. '), 'On the other device, tap ', ui.el('b', {}, '⋯'), ' on a box or issue, choose ', ui.el('b', {}, 'Send to another device'), ', and scan this code.'),
-    await codeView(ui, s.link.code),
-    ui.el('p', { class: 'xfer-text' }, ui.el('b', {}, 'Step 2. '), 'Scan the code that appears on the other device.'),
+  s.show(title, stepper(ui, 1),
+    ui.el('p', { class: 'xfer-text' }, 'On the device with the comics, tap ', ui.el('b', {}, '⋯'), ' on a box or issue and choose ', ui.el('b', {}, 'Send to another device'), '. Then point this camera at the code it shows.'),
     scan.node,
     ui.el('p', { class: 'xfer-small' }, SAME_WIFI),
+    helpFold(ui),
     ui.el('div', { class: 'row' }, cancelBtn(ui, s)));
   scan.start();
 
@@ -234,21 +291,21 @@ export async function receiveFlow(ui, { isBusy }) {
       const dc = await s.link.open();
       const pin = await s.link.pairCode();
       const bar = progressView(ui, 'Receiving. Keep both screens on and Comic Boxes open.');
-      let title = '';
+      let what = '';
       const result = await transfer.receive(dc, s.link.pc, {
         confirm: (hello) => new Promise((resolve) => {
-          title = String(hello.title || 'comics');
-          s.show('Receive comics?',
-            ui.el('p', { class: 'xfer-text' }, `${String(hello.from || 'Another device')} wants to send you `, ui.el('b', {}, `"${title}"`), '.'),
+          what = String(hello.title || 'comics');
+          s.show('Receive comics?', stepper(ui, 3),
+            ui.el('p', { class: 'xfer-text' }, `${String(hello.from || 'Another device')} wants to send you `, ui.el('b', {}, `"${what}"`), '.'),
             ui.el('p', { class: 'xfer-small' }, describe(ui, Number(hello.issues) || 0, Number(hello.boxes) || 0, Number(hello.bytes) || 0)),
-            ui.el('p', { class: 'xfer-pin', 'aria-label': `Check code ${pin.split('').join(' ')}` }, pin),
+            ui.el('p', { class: 'xfer-pin', 'aria-label': `Check number ${pin.split('').join(' ')}` }, pin),
             ui.el('p', { class: 'xfer-small' }, 'Make sure the other device shows the same number. Boxes with the same name are joined, and issues you already have are skipped.'),
             ui.el('div', { class: 'row' },
               ui.el('button', { class: 'btn', type: 'button', onclick: () => resolve(false) }, 'Decline'),
               ui.el('button', { class: 'btn primary', type: 'button', onclick: () => {
                 ui.lockSheet(true);
                 s.keepAwake();
-                s.show(`Receiving "${title}"`, bar.node, ui.el('div', { class: 'row' }, cancelBtn(ui, s, 'Stop')));
+                s.show(`Receiving "${what}"`, bar.node, ui.el('div', { class: 'row' }, cancelBtn(ui, s, 'Stop')));
                 resolve(true);
               } }, 'Accept')));
         }),
