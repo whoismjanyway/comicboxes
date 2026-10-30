@@ -14,7 +14,7 @@ const META = 'comic-boxes-meta'; // settings shared with the page: { updates, ap
 const APP_FILES = [
   './', 'index.html', 'css/styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/db.js', 'js/comic.js', 'js/importer.js', 'js/reader.js', 'js/settings.js', 'js/zip.js', 'js/rar.js',
-  'js/qr.js', 'js/transfer.js', 'js/share.js',
+  'js/qr.js', 'js/transfer.js', 'js/share.js', 'js/relay.js', 'js/backup.js',
 ];
 const STATIC_FILES = [
   'fonts/BarlowCondensed-SemiBold.woff', 'fonts/BarlowCondensed-ExtraBold.woff', 'fonts/PermanentMarker.woff',

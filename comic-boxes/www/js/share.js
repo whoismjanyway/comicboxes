@@ -2,6 +2,7 @@
 // The network side is in transfer.js; QR codes are in qr.js.
 import { qrSvg, openCamera, stopCamera, scanVideo } from './qr.js';
 import * as transfer from './transfer.js';
+import * as relay from './relay.js';
 
 const SAME_WIFI = 'Both devices must be on the same Wi-Fi. Comics go straight from one to the other: never through the internet, and never over mobile data.';
 
@@ -47,7 +48,7 @@ function cancelBtn(ui, s, label = 'Cancel') {
 }
 
 // A camera view that reads QR codes, plus a text box for typing or pasting a code instead.
-function scanner(ui, s, onCode, hint) {
+function scanner(ui, s, onCode, hint, withText = true) {
   const video = ui.el('video', { class: 'xfer-cam', playsinline: '', muted: '', autoplay: '', 'aria-label': 'Camera' });
   video.muted = true;
   const camBox = ui.el('div', { class: 'xfer-cam-wrap' }, video, ui.el('span', { class: 'xfer-aim', 'aria-hidden': 'true' }));
@@ -83,7 +84,7 @@ function scanner(ui, s, onCode, hint) {
       textBox.open = true;
     }
   };
-  return { node: ui.el('div', { class: 'xfer-scan' }, camBox, camNote, textBox), start };
+  return { node: ui.el('div', { class: 'xfer-scan' }, camBox, camNote, withText && textBox), start, take };
 }
 
 // Shows this device's code as a QR, with the same code as text for devices without a camera.
@@ -132,9 +133,8 @@ const describe = (ui, n, boxes, bytes) =>
   [ui.plural(n, 'issue', 'issues'), boxes > 1 ? `in ${ui.plural(boxes, 'box', 'boxes')}` : null, ui.formatBytes(bytes)].filter(Boolean).join(', ').replace(/, in /, ' in ');
 
 // ---------- the guide ----------
-// The three moments both devices go through, shown at the top of each screen so it's clear
-// which device does what right now.
-const STEPS = ['Sender shows a code', 'Receiver shows a code', 'Accept'];
+// The three moments both devices go through, shown at the top of each screen.
+const STEPS = ['Code', 'Connect', 'Accept'];
 function stepper(ui, at) {
   return ui.el('ol', { class: 'xfer-steps', 'aria-label': `Step ${at} of 3` },
     STEPS.map((label, i) => ui.el('li', { class: i + 1 < at ? 'done' : i + 1 === at ? 'now' : '', 'aria-current': i + 1 === at ? 'step' : false },
@@ -162,11 +162,11 @@ export function guideSteps(ui) {
     guidePicture(ui),
     ui.el('ol', {},
       item(1, ui.el('b', {}, 'Same Wi-Fi. '), 'Put both devices on the same Wi-Fi. A phone\'s hotspot works too.'),
-      item(2, ui.el('b', {}, 'On the device with the comics, '), 'tap ', ui.el('b', {}, '⋯'), ' on a box or issue and choose ', ui.el('b', {}, 'Send to another device'), '. A code appears.'),
-      item(3, ui.el('b', {}, 'On the other device, '), 'tap ', ui.el('b', {}, '+'), ', choose ', ui.el('b', {}, 'Receive comics'), ' and point it at that code. It shows a code back.'),
-      item(4, ui.el('b', {}, 'Back on the first device, '), 'tap ', ui.el('b', {}, 'Scan its code'), ' and point it at the other screen.'),
-      item(5, ui.el('b', {}, 'Accept. '), 'Both screens show the same 4-digit number. Tap ', ui.el('b', {}, 'Accept'), ' on the receiving device and keep both screens on until it finishes.')),
-    ui.el('p', { class: 'xfer-small' }, 'Comics go straight from one device to the other. It never uses mobile data or the internet. Issues the other device already has are skipped, so if it stops part way, just send again.'));
+      item(2, ui.el('b', {}, 'On the device with the comics, '), 'tap ', ui.el('b', {}, '⋯'), ' on a box or issue and choose ', ui.el('b', {}, 'Send to another device'), '. A short code and a QR code appear.'),
+      item(3, ui.el('b', {}, 'On the other device, '), 'tap ', ui.el('b', {}, '+'), ', choose ', ui.el('b', {}, 'Receive comics'), ' and type the code, or scan the QR code. The two connect by themselves.'),
+      item(4, ui.el('b', {}, 'Accept. '), 'Both screens show the same 4-digit number. Tap ', ui.el('b', {}, 'Accept'), ' on the receiving device and keep both screens on until it finishes.')),
+    ui.el('p', { class: 'xfer-small' }, 'The comics go straight from one device to the other over Wi-Fi, never over mobile data. The short code uses the internet for a moment to introduce the two devices (about 2 KB, scrambled). No internet on this Wi-Fi? Scan the QR code, then tap ', ui.el('b', {}, 'Scan its code'), ' on the sending device and scan the code shown back.'),
+    ui.el('p', { class: 'xfer-small' }, 'Issues the other device already has are skipped, so if a transfer stops part way, just send again.'));
 }
 
 export function showGuide(ui) {
@@ -175,9 +175,18 @@ export function showGuide(ui) {
 }
 
 const helpFold = (ui) => ui.el('details', { class: 'xfer-alt xfer-help' }, ui.el('summary', {}, 'How does this work?'), guideSteps(ui));
+const status = (ui, text) => ui.el('p', { class: 'xfer-small xfer-status', role: 'status' }, text);
+
+// What the QR code holds: the full connection details (so it works with no internet), plus the
+// short code when the relay was reached (so scanning it connects without a second scan).
+const qrText = (details, code) => (code ? `${details}#${code}` : details);
+function readQr(text) {
+  const [details, code] = String(text).trim().split('#');
+  return { details, code: code ? relay.cleanCode(code) : null };
+}
 
 // ---------- sending ----------
-// The device with the comics goes first: it shows a code, then scans the code the other one shows back.
+// The device with the comics goes first: it shows a short code and a QR code, then waits.
 export async function sendFlow(ui, item) {
   if (blockedByNetwork(ui, 'Send to another device')) return;
   const p = await transfer.pack(item);
@@ -185,34 +194,66 @@ export async function sendFlow(ui, item) {
   const s = session(ui);
   const title = `Send "${p.title}"`;
   const what = describe(ui, p.comics.length, p.boxes.length, p.bytes);
-  s.show(title, stepper(ui, 1), ui.el('p', { class: 'xfer-small', role: 'status' }, 'Getting ready…'), ui.el('div', { class: 'row' }, cancelBtn(ui, s)));
+  s.show(title, stepper(ui, 1), status(ui, 'Getting ready…'), ui.el('div', { class: 'row' }, cancelBtn(ui, s)));
 
-  // The camera goes on first: it's needed for the second scan, and while it's on, phones put
-  // their exact Wi-Fi address in the code instead of a private name, which connects more reliably.
-  try { s.stream = await openCamera(); } catch { /* the scanner explains and offers a text code */ }
-  if (s.done) return;
   try { s.link = await transfer.makeOffer(); } catch (e) { s.fail(e); return; }
   if (s.done) return;
   s.watch();
 
-  const scan = scanner(ui, s, async (code) => {
-    await s.link.finish(code);
+  let answered = false;
+  const finish = async (reply) => {
+    s.stopRelay?.();
+    try {
+      await s.link.finish(reply);
+    } catch (e) { s.fail(e); return; }
     stopCamera(s.stream); s.stream = null;
-    s.show(title, stepper(ui, 3), ui.el('p', { class: 'xfer-small', role: 'status' }, 'Connecting…'), ui.el('div', { class: 'row' }, cancelBtn(ui, s)));
+    s.show(title, stepper(ui, 2), status(ui, 'Connecting…'), ui.el('div', { class: 'row' }, cancelBtn(ui, s)));
     connect();
-  }, 'Hold it steady for a moment.');
+  };
 
-  // One screen with two halves, so the camera keeps running while you switch between them.
-  const steps = ui.el('div', {}, stepper(ui, 1));
+  // Post the details under a fresh short code. Without internet, only the QR codes work.
+  const code = relay.newCode();
+  let usedCode = false;
+  try {
+    const r = await relay.offer(code, s.link.code, (reply) => {
+      if (s.done || answered) return;
+      answered = true;
+      finish(reply);
+    });
+    s.stopRelay = r.stop;
+    usedCode = true;
+  } catch { /* offline: QR codes only */ }
+  if (s.done) { s.stopRelay?.(); return; }
+  const cleanupBase = s.cleanup;
+  s.cleanup = () => { s.stopRelay?.(); cleanupBase(); };
+
+  // Offline fallback: scan the code the other device shows back.
+  const scan = scanner(ui, s, async (text) => {
+    if (answered) return;
+    transfer.readCode(text, 'answer'); // throws a helpful message if it's the wrong kind of code
+    answered = true;
+    await finish(text);
+  }, 'Hold it steady for a moment.');
   let scanning = false;
-  const mine = ui.el('div', {},
-    ui.el('p', { class: 'xfer-text' }, 'On the other device, open Comic Boxes, tap ', ui.el('b', {}, '+'), ' and choose ', ui.el('b', {}, 'Receive comics'), '. Point it at this code.'),
-    await codeView(ui, s.link.code),
-    ui.el('button', { class: 'btn primary wide', type: 'button', onclick: () => flip(true) }, 'It shows a code. Scan its code'));
   const theirs = ui.el('div', { hidden: '' },
     ui.el('p', { class: 'xfer-text' }, 'Point this camera at the code on the other device.'),
     scan.node,
     ui.el('button', { class: 'btn wide', type: 'button', onclick: () => flip(false) }, 'Show my code again'));
+  const mine = ui.el('div', {},
+    usedCode
+      ? ui.el('div', {},
+        ui.el('p', { class: 'xfer-text' }, 'On the other device, tap ', ui.el('b', {}, '+'), ' and choose ', ui.el('b', {}, 'Receive comics'), '. Type this code:'),
+        ui.el('p', { class: 'xfer-bigcode', 'aria-label': `Code ${code.split('').join(' ')}` }, relay.showCode(code)),
+        ui.el('p', { class: 'xfer-small center' }, 'or scan this QR code:'))
+      : ui.el('p', { class: 'xfer-text' }, 'This Wi-Fi has no internet, so use QR codes. On the other device, tap ', ui.el('b', {}, '+'), ', choose ', ui.el('b', {}, 'Receive comics'), ' and scan this code.'),
+    await codeView(ui, qrText(s.link.code, usedCode ? code : null)),
+    usedCode
+      ? status(ui, 'Waiting for the other device…')
+      : ui.el('button', { class: 'btn primary wide', type: 'button', onclick: () => flip(true) }, 'It shows a code. Scan its code'),
+    usedCode && ui.el('details', { class: 'xfer-alt' }, ui.el('summary', {}, 'The other device shows a QR code instead?'),
+      ui.el('p', { class: 'xfer-small' }, 'That happens when it has no internet. Scan its code to finish connecting.'),
+      ui.el('button', { class: 'btn wide', type: 'button', onclick: () => flip(true) }, 'Scan its code')));
+  const steps = ui.el('div', {}, stepper(ui, 1));
   const flip = (toScan) => {
     mine.hidden = toScan;
     theirs.hidden = !toScan;
@@ -257,33 +298,106 @@ export async function sendFlow(ui, item) {
 }
 
 // ---------- receiving ----------
-// Scan the sender's code, show a code back, then accept.
+// Type the sender's short code (or scan its QR code) and the two connect by themselves.
 export async function receiveFlow(ui, { isBusy }) {
   if (isBusy()) { ui.toast('Still adding comics. Try again when that finishes.'); return; }
   if (blockedByNetwork(ui, 'Receive comics')) return;
   const s = session(ui);
   const title = 'Receive comics';
+  let busyNow = false;
 
-  const scan = scanner(ui, s, async (code) => {
-    // Answer while the camera is still on (see sendFlow), then turn it off.
-    s.link = await transfer.makeAnswer(code);
+  // Shared by typing and scanning. `details` is the sender's connection details; `code` is set
+  // when they can also be answered through the relay.
+  const answerWith = async (details, code) => {
+    s.link = await transfer.makeAnswer(details);
     stopCamera(s.stream); s.stream = null;
+    s.stopScan?.(); s.stopScan = null;
     s.watch();
+    if (code) {
+      try {
+        await relay.answer(code, s.link.code);
+        s.show(title, stepper(ui, 2), status(ui, 'Connecting…'), ui.el('div', { class: 'row' }, cancelBtn(ui, s)));
+        run();
+        return;
+      } catch { /* no internet: show a QR code for the sender to scan instead */ }
+    }
     s.show(title, stepper(ui, 2),
-      ui.el('p', { class: 'xfer-text' }, 'Now on the sending device, tap ', ui.el('b', {}, 'Scan its code'), ' and point it at this code.'),
+      ui.el('p', { class: 'xfer-text' }, 'This Wi-Fi has no internet, so finish with a QR code: on the sending device, tap ', ui.el('b', {}, 'Scan its code'), ' and point it at this code.'),
       await codeView(ui, s.link.code),
-      ui.el('p', { class: 'xfer-small', role: 'status' }, 'Waiting for the other device…'),
+      status(ui, 'Waiting for the other device…'),
       ui.el('div', { class: 'row' }, cancelBtn(ui, s)));
     run();
-  }, 'Hold it steady for a moment.');
+  };
+
+  const note = ui.el('p', { class: 'xfer-small', role: 'status' }, '');
+  const input = ui.el('input', {
+    class: 'xfer-code-input', type: 'text', inputmode: 'text', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false',
+    maxlength: '400', placeholder: 'K7P 4QX', 'aria-label': 'Code shown on the other device', enterkeyhint: 'go',
+  });
+  const go = ui.el('button', { class: 'btn primary', type: 'submit' }, 'Connect');
+  const useTyped = async () => {
+    if (busyNow || s.done) return;
+    const typed = input.value.trim();
+    note.classList.remove('bad');
+    // A long pasted code is the full details (works with no internet).
+    const long = typed.startsWith('CB1|') ? readQr(typed) : null;
+    const code = long ? null : relay.cleanCode(typed);
+    if (!long && !code) {
+      note.textContent = 'Codes are 6 letters and numbers, like K7P 4QX.';
+      note.classList.add('bad');
+      return;
+    }
+    busyNow = true;
+    go.disabled = true;
+    try {
+      if (long) { await answerWith(long.details, long.code); return; }
+      note.textContent = 'Looking for the other device…';
+      if (!(await transfer.hasWifiAddress())) throw new Error('This device isn\'t on a Wi-Fi network. Connect both devices to the same Wi-Fi.');
+      const details = await relay.fetchOffer(code);
+      if (s.done) return;
+      await answerWith(details, code);
+    } catch (e) {
+      if (s.done) return;
+      busyNow = false;
+      go.disabled = false;
+      note.textContent = e.message;
+      note.classList.add('bad');
+    }
+  };
+  input.addEventListener('input', () => {
+    // Show "K7P 4QX" as it's typed.
+    const raw = input.value;
+    if (raw.length <= 8 && !raw.startsWith('CB')) {
+      const c = raw.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 6);
+      const shown = c.length > 3 ? `${c.slice(0, 3)} ${c.slice(3)}` : c;
+      if (shown !== raw) input.value = shown;
+      if (c.length === 6) useTyped();
+    }
+  });
+
+  const scan = scanner(ui, s, async (text) => {
+    if (busyNow) return;
+    const { details, code } = readQr(text);
+    transfer.readCode(details, 'offer'); // throws a helpful message for the wrong kind of code
+    busyNow = true;
+    try { await answerWith(details, code); } catch (e) { busyNow = false; throw e; }
+  }, 'Hold it steady for a moment.', false);
+  const scanBox = ui.el('div', { hidden: '' }, scan.node);
+  const scanBtn = ui.el('button', { class: 'btn wide', type: 'button', onclick: () => {
+    scanBtn.hidden = true;
+    scanBox.hidden = false;
+    scan.start();
+  } }, 'Scan the QR code instead');
 
   s.show(title, stepper(ui, 1),
-    ui.el('p', { class: 'xfer-text' }, 'On the device with the comics, tap ', ui.el('b', {}, '⋯'), ' on a box or issue and choose ', ui.el('b', {}, 'Send to another device'), '. Then point this camera at the code it shows.'),
-    scan.node,
+    ui.el('p', { class: 'xfer-text' }, 'On the device with the comics, tap ', ui.el('b', {}, '⋯'), ' on a box or issue and choose ', ui.el('b', {}, 'Send to another device'), '. Type the code it shows:'),
+    ui.el('form', { class: 'xfer-code-form', onsubmit: (e) => { e.preventDefault(); useTyped(); } }, input, go),
+    note,
+    scanBtn, scanBox,
     ui.el('p', { class: 'xfer-small' }, SAME_WIFI),
     helpFold(ui),
     ui.el('div', { class: 'row' }, cancelBtn(ui, s)));
-  scan.start();
+  setTimeout(() => input.focus(), 80);
 
   let saved = 0;
   async function run() {

@@ -39,6 +39,8 @@ comic-boxes/
     ├── js/share.js         ← Send to / receive from another device: the screens
     ├── js/transfer.js      ← …the Wi-Fi-only connection and what gets sent
     ├── js/qr.js            ← …QR codes for pairing the two devices
+    ├── js/relay.js         ← …short codes for pairing (encrypted, via ntfy.sh)
+    ├── js/backup.js        ← backups: saving and restoring the whole library
     ├── fonts/              ← Barlow Condensed + Permanent Marker (free licenses included)
     ├── vendor/             ← JSZip, libarchive.js (RAR/7z/tar), pdf.js (PDF), with licenses
     ├── manifest.webmanifest, sw.js  ← home-screen install and offline use
@@ -335,30 +337,51 @@ whether an update exists. It doesn't download the update unless you allow it.
 ### Sending comics to another device
 
 Send a whole box (with the boxes inside it) or a single issue from one phone, tablet or computer
-to another. **It only works over Wi-Fi, and never uses mobile data or the internet.**
+to another. **The comics only travel over Wi-Fi, never over mobile data.**
 
 1. Put both devices on the **same Wi-Fi** (a phone's personal hotspot also works).
 2. On the device **with the comics**, tap **⋯** on a box or issue → **Send to another device**.
-   A QR code appears.
-3. On the **other** device, tap **+ → Receive comics** and point it at that code.
-   It shows a QR code back.
-4. On the first device, tap **Scan its code** and point it at the other screen.
-5. Both screens show the same 4-digit number. Tap **Accept** on the receiving device.
+   It shows a short code like **K7P 4QX** and a QR code.
+3. On the **other** device, tap **+ → Receive comics** and **type the code** (or tap
+   **Scan the QR code instead**). The two connect by themselves.
+4. Both screens show the same 4-digit number. Tap **Accept** on the receiving device.
 
-A bar at the top of both screens shows which of the three steps you're on. The same guide is
-in the app under **Settings → Sending comics**, and under **How does this work?** on both screens.
-A new, empty device also has a **Get comics from another device** button on its home screen.
+Computers without a camera just type the code. Keep both screens on and the app open until it
+finishes. Reading progress comes along, a box with the same name is joined instead of
+duplicated, and issues the receiver already has are skipped, so if a transfer stops part way,
+just send it again. The guide is also in the app under **Settings → Sending comics**.
 
-Keep both screens on and the app open until it finishes. Reading progress comes along. A box
-with the same name on the receiving device is joined instead of duplicated, and issues it
-already has are skipped, so if a transfer stops part way, just send it again to get the rest.
-No camera (a laptop)? Under each code there's a text version to copy and paste.
+**How the short code works:** browsers can't find each other on a Wi-Fi network by themselves,
+so the two devices meet once on a free public message relay ([ntfy.sh](https://ntfy.sh)) to swap
+connection details: about 2 KB, encrypted with a key made from the code, so the relay only sees
+scrambled text. The comics never go through it. Android phones on mobile data are stopped before
+the relay is contacted; iPhones don't tell web apps whether they're on Wi-Fi, so on an iPhone
+those 2 KB could use mobile data if it isn't on Wi-Fi. To use your own ntfy server, run
+`localStorage.setItem('cb.relay', 'https://your-server')` in the browser console.
 
-How it stays off mobile data: the two devices connect **directly to each other** with no server
-in between, and the codes only carry home-network addresses (like 192.168.x.x), so the
-connection can only form inside one Wi-Fi network. Android phones on mobile data are stopped
-before anything starts, and a transfer stops if the phone switches to mobile data. Guest and
-public Wi-Fi networks often keep devices apart; a home network or a phone's hotspot works.
+**No internet on the Wi-Fi?** It still works: scan the QR code, then on the sending device tap
+**Scan its code** and scan the code the receiver shows back. Nothing uses the internet that way.
+
+**Why it can't use mobile data for the comics:** the devices connect directly with no server in
+between, and only home-network addresses (like 192.168.x.x) are allowed, so the connection can
+only form inside one Wi-Fi network. A transfer stops if an Android phone switches to mobile data.
+Guest and public Wi-Fi often keep devices apart; a home network or a phone's hotspot works.
+
+### Keeping your comics safe
+
+> **Never delete the Comic Boxes icon to update the app.** On iPhone and iPad, deleting a
+> home-screen app deletes every comic stored in it. Uninstalling it on Android or a computer, or
+> clearing the browser's website data, usually does the same. To update, use
+> **Settings → Check for updates**: it keeps your comics.
+
+**Backups.** **Settings → Keep your comics safe → Back up** saves every box, comic and reading
+progress into one `.comicboxes` file. On iPhone choose **Save to Files**; elsewhere it downloads.
+Keep it somewhere outside the app (the Files app, a computer, a USB drive). To get everything
+back, tap **Restore** there (or **Had comics here before? Restore a backup** on an empty home
+screen) and pick the file. Restoring is safe to repeat: comics already there are skipped.
+
+**Protected storage.** The same section shows whether the browser has promised not to clear
+Comic Boxes' storage when the device runs low on space, with a button to ask for it.
 
 ### Storage
 

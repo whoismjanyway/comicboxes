@@ -500,3 +500,14 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .xfer-guide li .n { flex: none; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: var(--red); color: #fff; font-weight: 700; font-size: 14px; }
 .xfer-guide li p { margin: 3px 0 0; line-height: 1.4; font-size: 15px; }
 .xfer-help .xfer-guide { margin-top: 8px; }
+
+/* ---------- Backups ---------- */
+.link-btn { margin-top: 18px; border: 0; background: none; color: var(--muted); font-size: 14px; text-decoration: underline; text-underline-offset: 3px; min-height: 44px; padding: 0 8px; }
+.set-note.warn { padding: 12px 14px; margin: -4px 0 12px; border-radius: 12px; background: color-mix(in srgb, var(--red) 10%, var(--raised)); color: var(--ink); line-height: 1.4; }
+.set-text small.bad { color: var(--red); }
+.xfer-bigcode { margin: 2px 0 6px; text-align: center; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-weight: 700; font-size: 44px; letter-spacing: .08em; user-select: all; -webkit-user-select: all; }
+.xfer-small.center { text-align: center; margin-bottom: 4px; }
+.xfer-code-form { display: flex; gap: 8px; margin: 0 0 8px; }
+.xfer-code-input { flex: 1; min-width: 0; min-height: 56px; padding: 0 14px; font: 700 26px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; border: 1px solid var(--line); border-radius: 14px; background: var(--sunken); color: var(--ink); -webkit-user-select: text; user-select: text; }
+.xfer-code-input::placeholder { color: var(--muted); opacity: .45; }
+.xfer-code-form .btn { min-height: 56px; }

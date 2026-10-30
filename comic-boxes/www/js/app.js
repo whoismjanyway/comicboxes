@@ -6,6 +6,7 @@ import { Reader } from './reader.js';
 import * as settings from './settings.js';
 import { SECTIONS } from './settings.js';
 import { sendFlow, receiveFlow, showGuide } from './share.js';
+import * as backup from './backup.js';
 
 const $ = (id) => document.getElementById(id);
 const shelf = $('shelf');
@@ -345,7 +346,8 @@ function emptyState(isRoot) {
       el('button', { class: 'btn primary', type: 'button', onclick: () => folderInput.click() }, svg(ICON.folder), 'Add a folder'),
       el('button', { class: 'btn', type: 'button', onclick: () => fileInput.click() }, svg(ICON.file), 'Add comic files'),
       el('button', { class: 'btn', type: 'button', onclick: newBox }, svg(ICON.box), 'New empty box'),
-      isRoot && el('button', { class: 'btn', type: 'button', onclick: receiveComics }, svg(ICON.receive), 'Get comics from another device')));
+      isRoot && el('button', { class: 'btn', type: 'button', onclick: receiveComics }, svg(ICON.receive), 'Get comics from another device')),
+    isRoot && el('button', { class: 'link-btn', type: 'button', onclick: pickBackup }, 'Had comics here before? Restore a backup'));
 }
 
 // ---------- sheet: menus and dialogs ----------
@@ -595,6 +597,43 @@ async function renderSettings() {
 
   shelf.replaceChildren(
     el('div', { class: 'settings' },
+      (() => {
+        const last = settings.get('lastBackup');
+        const ago = last ? Math.floor((Date.now() - last) / 86400000) : null;
+        const when = last ? `Last backup ${new Date(last).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}.` : 'No backup yet.';
+        const stale = comics.length && (ago == null || ago > 30);
+        const protect = el('div', { class: 'set-row' });
+        (async () => {
+          const st = navigator.storage;
+          if (!st?.persisted) { protect.remove(); return; }
+          const on = await st.persisted().catch(() => false);
+          protect.replaceChildren(
+            el('div', { class: 'set-text' }, el('b', {}, 'Protected storage'),
+              el('small', {}, on
+                ? 'On. The browser won\'t clear your comics to free up space.'
+                : 'Off. If the device runs low on space, the browser may clear them. Keep a backup.')),
+            on ? el('span', { class: 'status-dot ok', 'aria-hidden': 'true' })
+              : el('button', { class: 'btn', type: 'button', onclick: async () => {
+                const ok = await st.persist().catch(() => false);
+                toast(ok ? 'Storage protected.' : 'The browser said no. It usually allows it once the app is on your home screen.', 5000);
+                renderSettings();
+              } }, 'Turn on'));
+        })();
+        return el('section', { class: 'section set-section' },
+          el('div', { class: 'section-head' }, el('h2', {}, 'Keep your comics safe')),
+          el('p', { class: 'set-note warn' }, el('b', {}, 'Never delete the Comic Boxes icon to update it. '), 'Deleting the icon, uninstalling the app or clearing the browser\'s website data deletes every comic in it. To update, use Check for updates below: it keeps your comics.'),
+          el('div', { class: 'set-group' },
+            el('div', { class: 'set-row' },
+              el('div', { class: 'set-text' }, el('b', {}, 'Back up'),
+                el('small', { class: stale ? 'bad' : '' }, `${when} Saves every box, comic and reading progress in one file (about ${formatBytes(comics.reduce((t, c) => t + (c.size || 0), 0))}) to keep in Files or on a computer.`)),
+              el('button', { class: 'btn', type: 'button', onclick: backupNow }, 'Back up')),
+            el('div', { class: 'set-row' },
+              el('div', { class: 'set-text' }, el('b', {}, 'Restore a backup'),
+                el('small', {}, 'Adds the comics from a backup file. Ones already here are skipped.')),
+              el('button', { class: 'btn', type: 'button', onclick: pickBackup }, 'Restore')),
+            protect));
+      })(),
+
       el('section', { class: 'section set-section' },
         el('div', { class: 'section-head' }, el('h2', {}, 'Home screen')),
         el('p', { class: 'set-note' }, 'The order of the sections on My boxes. Use the arrows to move one up or down, and the switch to hide it.'),
@@ -636,7 +675,7 @@ async function renderSettings() {
       (() => {
         const desc = (v) => (v === 'auto'
           ? 'Checks for a new version when the app opens. Android waits for Wi-Fi; iPhones don\'t tell apps if they\'re on Wi-Fi, so this may use mobile data.'
-          : 'The app never goes online by itself. Tap Check for updates when you\'re on Wi-Fi.');
+          : 'The app never goes online by itself. Tap Check for updates when you\'re on Wi-Fi. Updating keeps all your comics.');
         const modeNote = el('small', {}, desc(settings.get('updates')));
         const last = settings.get('lastUpdateCheck');
         const status = el('small', {}, last ? `Last checked ${new Date(last).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}.` : 'Not checked yet.');
@@ -647,7 +686,7 @@ async function renderSettings() {
         } }, 'Check');
         return el('section', { class: 'section set-section' },
           el('div', { class: 'section-head' }, el('h2', {}, 'Internet use')),
-          el('p', { class: 'set-note' }, 'Your comics never use the internet: they stay on this device, and nothing is uploaded or backed up online. Sending comics to another device goes straight between the two over Wi-Fi, never over mobile data. The internet is only used to update the app itself (about 4 MB).'),
+          el('p', { class: 'set-note' }, 'Your comics never use the internet: they stay on this device, and nothing is uploaded or backed up online. Sending comics to another device goes straight between the two over Wi-Fi, never over mobile data. The internet is only used to update the app itself (about 4 MB) and, when you pair two devices with a short code, to pass about 2 KB of scrambled connection details between them.'),
           el('div', { class: 'set-group' },
             el('div', { class: 'set-row stack' },
               el('div', { class: 'set-text' }, el('b', {}, 'App updates'), modeNote),
@@ -697,6 +736,50 @@ async function renderSettings() {
   window.scrollTo(0, 0);
 }
 
+// ---------- backups ----------
+async function backupNow() {
+  if (busy) { toast('Still adding comics. Try again when that finishes.'); return; }
+  const b = await backup.makeBackup();
+  if (!b.comics) { toast('There are no comics to back up yet.'); return; }
+  const how = await backup.saveFile(b.blob, b.name);
+  if (how === 'cancelled') return;
+  settings.set('lastBackup', Date.now());
+  toast(`Backup of ${plural(b.comics, 'comic', 'comics')} (${formatBytes(b.bytes)}) is ready. Keep the file safe, for example in Files or on a computer.`, 7000);
+  if (location.hash === '#/settings') renderSettings();
+}
+
+const backupInput = el('input', { type: 'file', accept: `${backup.EXT},application/octet-stream`, hidden: '' });
+document.body.append(backupInput);
+function pickBackup() { backupInput.click(); }
+backupInput.addEventListener('change', () => { const f = [...backupInput.files]; backupInput.value = ''; if (f.length) restoreFiles(f); });
+
+async function restoreFiles(files) {
+  if (busy) { toast('Still adding comics. Try again when that finishes.'); return; }
+  busy = true;
+  db.askPersistentStorage();
+  showProgress(0, 0, 'Reading the backup');
+  let added = 0;
+  let skipped = 0;
+  let reload = false;
+  try {
+    for (const f of files) {
+      const r = await backup.restore(f, (done, total, name) => showProgress(done, total, name));
+      added += r.added; skipped += r.skipped; reload = reload || r.settingsRestored;
+    }
+    toast(added
+      ? `Restored ${plural(added, 'comic', 'comics')}.${skipped ? ` ${plural(skipped, 'was', 'were')} already here.` : ''}`
+      : 'Every comic in the backup is already here.', 5000);
+  } catch (e) {
+    console.error(e);
+    toast(e.message || 'That backup couldn\'t be restored.', 7000);
+  } finally {
+    busy = false;
+    $('progressPanel').hidden = true;
+    route();
+    if (reload) setTimeout(() => location.reload(), 1800);
+  }
+}
+
 // ---------- importing ----------
 function showProgress(done, total, name) {
   const panel = $('progressPanel');
@@ -709,6 +792,7 @@ function showProgress(done, total, name) {
 async function importEntries(entriesPromise) {
   if (busy) { toast('Still adding the last batch. Try again when it finishes.'); return; }
   busy = true;
+  db.askPersistentStorage();
   const target = currentBox;
   showProgress(0, 0, '');
   try {
@@ -744,7 +828,16 @@ function summary(r) {
   return bits.join(' ') || 'Nothing new to add.';
 }
 
-fileInput.addEventListener('change', () => { importEntries(Promise.resolve(entriesFromFiles(fileInput.files))); fileInput.value = ''; });
+fileInput.addEventListener('change', async () => {
+  const files = [...fileInput.files];
+  fileInput.value = '';
+  // A backup picked under "Comic files" is restored rather than read as a comic.
+  const backups = [];
+  const rest = [];
+  for (const f of files) (await backup.isBackup(f) ? backups : rest).push(f);
+  if (backups.length) await restoreFiles(backups);
+  if (rest.length) importEntries(Promise.resolve(entriesFromFiles(rest)));
+});
 folderInput.addEventListener('change', () => { importEntries(Promise.resolve(entriesFromFiles(folderInput.files))); folderInput.value = ''; });
 
 // Drag and drop files or whole folders (Mac, PC, iPad with Split View)
