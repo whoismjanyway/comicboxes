@@ -692,7 +692,7 @@ async function renderSettings() {
           renderSettings(); toast('Library emptied');
         } }, 'Delete all comics and boxes')),
 
-      el('p', { class: 'set-about' }, 'Comic Boxes 2.3. Your comics and settings are kept only on this device.')),
+      el('p', { class: 'set-about' }, 'Comic Boxes 2.4. Your comics and settings are kept only on this device.')),
   );
   window.scrollTo(0, 0);
 }
