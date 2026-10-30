@@ -21,6 +21,8 @@ const DEFAULTS = {
   boxSort: 'name',       // name | added
   coverSize: 'medium',   // small | medium | large
   readingCount: 12,
+  updates: 'manual',    // manual | auto  (when the app may go online to update itself)
+  lastUpdateCheck: 0,
 };
 
 const KEY = 'cb.settings';

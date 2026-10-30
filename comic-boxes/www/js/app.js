@@ -617,6 +617,34 @@ async function renderSettings() {
         setRow('Keep the screen on', canWake ? 'Stops the screen from dimming while you read.' : 'This device or browser doesn\'t allow it.',
           toggle(canWake && pref.get('awake', false), 'Keep the screen on', (v) => pref.set('awake', v), !canWake))),
 
+      (() => {
+        const desc = (v) => (v === 'auto'
+          ? 'Checks for a new version when the app opens. Android waits for Wi-Fi; iPhones don\'t tell apps if they\'re on Wi-Fi, so this may use mobile data.'
+          : 'The app never goes online by itself. Tap Check for updates when you\'re on Wi-Fi.');
+        const modeNote = el('small', {}, desc(settings.get('updates')));
+        const last = settings.get('lastUpdateCheck');
+        const status = el('small', {}, last ? `Last checked ${new Date(last).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}.` : 'Not checked yet.');
+        const btn = el('button', { class: 'btn', type: 'button', onclick: async () => {
+          btn.disabled = true;
+          await checkForUpdates((t) => { status.textContent = t; });
+          btn.disabled = false;
+        } }, 'Check');
+        return el('section', { class: 'section set-section' },
+          el('div', { class: 'section-head' }, el('h2', {}, 'Internet use')),
+          el('p', { class: 'set-note' }, 'Your comics never use the internet: they stay on this device, and nothing is uploaded or backed up online. The internet is only used to update the app itself (about 4 MB).'),
+          el('div', { class: 'set-group' },
+            el('div', { class: 'set-row stack' },
+              el('div', { class: 'set-text' }, el('b', {}, 'App updates'), modeNote),
+              segmented('App updates', [['manual', 'Only when I tap'], ['auto', 'Automatic']], settings.get('updates'), (v) => {
+                settings.set('updates', v);
+                writeMeta({ updates: v });
+                modeNote.textContent = desc(v);
+              })),
+            el('div', { class: 'set-row' },
+              el('div', { class: 'set-text' }, el('b', {}, 'Check for updates'), status),
+              btn)));
+      })(),
+
       setGroup('Library', null,
         setRow('On this device', `${plural(comics.length, 'comic', 'comics')} in ${plural(boxes.length, 'box', 'boxes')}, using about ${formatBytes(used)}.`, null),
         (() => {
@@ -644,7 +672,7 @@ async function renderSettings() {
           renderSettings(); toast('Library emptied');
         } }, 'Delete all comics and boxes')),
 
-      el('p', { class: 'set-about' }, 'Comic Boxes 2.1. Your comics and settings are kept only on this device.')),
+      el('p', { class: 'set-about' }, 'Comic Boxes 2.2. Your comics and settings are kept only on this device.')),
   );
   window.scrollTo(0, 0);
 }
@@ -719,11 +747,68 @@ document.addEventListener('gesturestart', (e) => e.preventDefault());
 
 // ---------- start ----------
 db.askPersistentStorage();
-// Offline support. (Not needed inside the installed iOS/Android app, which has its files built in.)
-if ('serviceWorker' in navigator && isSecureContext && !window.Capacitor) {
-  navigator.serviceWorker.register('sw.js', { scope: './' })
-    .then((reg) => reg.update().catch(() => {}))
-    .catch((e) => console.warn('Offline support unavailable:', e));
+// ---------- internet use ----------
+// Comics never use the internet. The only network use is the app updating its own files, and the
+// service worker (sw.js) only does that when allowed: "Only when I tap" (default) or "Automatic".
+const SW_OK = 'serviceWorker' in navigator && isSecureContext && !window.Capacitor;
+
+// Shares the update setting with the service worker (both can read Cache Storage).
+async function writeMeta(patch) {
+  if (!('caches' in window)) return;
+  try {
+    const cache = await caches.open('comic-boxes-meta');
+    const key = new URL('meta.json', location.href).href.split('#')[0];
+    const old = await cache.match(key).then((r) => (r ? r.json() : {})).catch(() => ({}));
+    await cache.put(key, new Response(JSON.stringify({ ...old, ...patch }), { headers: { 'content-type': 'application/json' } }));
+  } catch { /* storage unavailable */ }
+}
+const onMobileData = () => { const c = navigator.connection; return !!(c && (c.type === 'cellular' || c.saveData)); };
+
+if (SW_OK) {
+  writeMeta({ updates: settings.get('updates') }).finally(() => {
+    const sw = navigator.serviceWorker;
+    if (!sw.controller) {
+      // First visit: save the app on the device so it works offline from now on.
+      sw.register('sw.js', { scope: './' }).catch((e) => console.warn('Offline support unavailable:', e));
+    } else if (settings.get('updates') === 'auto' && !onMobileData()) {
+      sw.register('sw.js', { scope: './' }).then((reg) => reg.update()).catch(() => {});
+    }
+    // "Only when I tap": nothing is checked or downloaded here.
+  });
+}
+
+// Settings > Check for updates. Downloads a new version only if there is one.
+async function checkForUpdates(report) {
+  if (!SW_OK) { report('Updates are built into the installed app.'); return; }
+  report('Checking…');
+  await writeMeta({ approvedUntil: Date.now() + 5 * 60 * 1000 });
+  try {
+    const sw = navigator.serviceWorker;
+    const reg = (await sw.getRegistration()) || (await sw.register('sw.js', { scope: './' }));
+    await reg.update();
+    settings.set('lastUpdateCheck', Date.now());
+    const incoming = reg.installing || reg.waiting;
+    if (!incoming) { report('You have the newest version.'); return; }
+    report('Downloading the update (about 4 MB)…');
+    const ok = await new Promise((resolve) => {
+      const check = () => {
+        if (incoming.state === 'activated') resolve(true);
+        else if (incoming.state === 'redundant') resolve(false);
+      };
+      incoming.addEventListener('statechange', check);
+      check();
+    });
+    if (ok) {
+      report('Updated. Restarting the app…');
+      setTimeout(() => location.reload(), 900);
+    } else {
+      report('The update didn\'t finish. Try again when you\'re on Wi-Fi.');
+    }
+  } catch {
+    report('Couldn\'t reach the internet. Try again when you\'re on Wi-Fi.');
+  } finally {
+    await writeMeta({ approvedUntil: 0 });
+  }
 }
 
 // Asks the service worker whether the app is fully saved for offline use.

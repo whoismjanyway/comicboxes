@@ -309,6 +309,26 @@ To add one anyway, unpack it on your Mac first (double-click it, or use the free
 **The Unarchiver** for RAR/7z), then add the resulting **folder of pictures** with **+ → A folder**.
 A folder of pictures becomes one comic.
 
+### Internet and mobile data
+
+**Your comics never use the internet.** Adding, storing and reading comics all happens on the
+device; nothing is uploaded, synced or backed up online.
+
+The only internet use is the app updating **its own files** (about 4 MB). In
+**Settings → Internet use → App updates**:
+
+- **Only when I tap** (default): the app never downloads anything by itself. Tap
+  **Check for updates** when you're on Wi-Fi to get the newest version.
+- **Automatic**: checks for a new version when the app opens. Android waits for Wi-Fi.
+  iPhones don't tell web apps whether they're on Wi-Fi or mobile data, so on iPhone this may use data.
+
+Each time the app opens, your phone's browser also checks one tiny file (about 6 KB) to see
+whether an update exists. It doesn't download the update unless you allow it.
+
+> If you pick a comic stored in **iCloud Drive** that isn't downloaded to the iPhone yet, iOS
+> downloads it, and that can use mobile data. To prevent that, turn off **iCloud Drive** under
+> **Settings → Mobile Data** (Datos móviles) on the iPhone.
+
 ### Storage
 
 Comics are copied into the app's private storage on the device (CBR/CB7/CBT/EPUB are
