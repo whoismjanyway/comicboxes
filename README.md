@@ -11,6 +11,7 @@ shop's long boxes, with boxes inside boxes, and read them with pinch-to-zoom. Wo
 - **Formats:** CBZ, CBR, CB7, CBT, PDF, EPUB, ZIP and folders of pictures. Even 1 GB files work on a phone.
 - **Reader:** pinch and double-tap zoom, swipe or tap to turn pages, two-page view on tablets, Manga mode.
 - **Black or white theme**, a Keep reading row, and a Settings page to arrange everything.
+- **Send boxes or issues to another device** on the same Wi-Fi by scanning a QR code. Never uses mobile data.
 - Your comics stay on your device. Nothing is uploaded.
 
 ## Put it on your phone

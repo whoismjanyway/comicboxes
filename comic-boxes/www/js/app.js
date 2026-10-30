@@ -5,6 +5,7 @@ import { entriesFromFiles, entriesFromDrop, plan, run } from './importer.js';
 import { Reader } from './reader.js';
 import * as settings from './settings.js';
 import { SECTIONS } from './settings.js';
+import { sendFlow, receiveFlow } from './share.js';
 
 const $ = (id) => document.getElementById(id);
 const shelf = $('shelf');
@@ -39,6 +40,7 @@ const ICON = {
   file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 11v6M9 14l3 3 3-3"/>',
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10v6M9 13l3 3 3-3"/>',
   box: '<path d="M3 9h18v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM2 5h20v4H2zM10 13h4"/>',
+  receive: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M12 7v7M9 11l3 3 3-3M11 18h2"/>',
 };
 // Comics added by the first version stored `colors` instead of `color`.
 const tint = (c) => c.color || (c.colors && c.colors[0]) || '';
@@ -350,6 +352,7 @@ const sheet = $('sheet');
 const scrim = $('scrim');
 let lastFocus = null;
 let sheetCancel = null;
+let sheetLocked = false; // while comics are being sent or received, a stray tap mustn't stop it
 function openSheet(content, onCancel = null) {
   lastFocus = document.activeElement;
   sheetCancel = onCancel;
@@ -365,6 +368,7 @@ function closeSheet() {
   lastFocus?.focus?.();
 }
 function cancelSheet() {
+  if (sheetLocked) return;
   const fn = sheetCancel;
   closeSheet();
   fn?.();
@@ -426,6 +430,12 @@ async function newBox() {
   render();
 }
 
+// What the send/receive screens (share.js) need from here.
+const shareUI = {
+  el, openSheet, closeSheet, toast, render, formatBytes, plural,
+  lockSheet: (on) => { sheetLocked = on; },
+};
+
 function addMenu() {
   const where = currentBox === ROOT ? 'My boxes' : $('title').textContent;
   openSheet([
@@ -433,6 +443,7 @@ function addMenu() {
     bigMenuBtn(ICON.folder, 'A folder', 'Every comic inside is added. Folders inside it become boxes inside this box.', () => folderInput.click(), true),
     bigMenuBtn(ICON.file, 'Comic files', 'CBZ, CBR, CB7, CBT, PDF or EPUB. Pick as many as you like.', () => fileInput.click()),
     bigMenuBtn(ICON.box, 'New empty box', 'Name it now and fill it later.', newBox),
+    bigMenuBtn(ICON.receive, 'From another device', 'Get boxes or issues sent from a phone, tablet or computer on the same Wi-Fi.', () => receiveFlow(shareUI, { isBusy: () => busy })),
     el('p', { class: 'hint' }, 'Phone can\'t pick folders? Zip the folder and add the .zip under Comic files. It turns into boxes the same way.'),
   ]);
 }
@@ -445,6 +456,7 @@ function boxMenu(box) {
       const name = await askText('Rename box', box.name, 'Save');
       if (name) { await db.put('boxes', { ...box, name }); render(); }
     }),
+    menuBtn('Send to another device', () => sendFlow(shareUI, { box })),
     menuBtn('Move to another box', async () => {
       const target = await pickBox(`Move "${box.name}" into`, await db.descendantIds(box.id));
       if (target != null && target !== box.parentId) { await db.put('boxes', { ...box, parentId: target }); render(); toast('Box moved'); }
@@ -464,6 +476,7 @@ function comicMenu(c) {
       const name = await askText('Rename comic', c.name, 'Save');
       if (name) { await db.put('comics', { ...c, name }); render(); }
     }),
+    menuBtn('Send to another device', () => sendFlow(shareUI, { comic: c })),
     menuBtn('Move to another box', async () => {
       const target = await pickBox(`Move "${c.name}" into`);
       if (target != null && target !== c.boxId) { await db.put('comics', { ...c, boxId: target }); render(); toast('Comic moved'); }
@@ -631,7 +644,7 @@ async function renderSettings() {
         } }, 'Check');
         return el('section', { class: 'section set-section' },
           el('div', { class: 'section-head' }, el('h2', {}, 'Internet use')),
-          el('p', { class: 'set-note' }, 'Your comics never use the internet: they stay on this device, and nothing is uploaded or backed up online. The internet is only used to update the app itself (about 4 MB).'),
+          el('p', { class: 'set-note' }, 'Your comics never use the internet: they stay on this device, and nothing is uploaded or backed up online. Sending comics to another device goes straight between the two over Wi-Fi, never over mobile data. The internet is only used to update the app itself (about 4 MB).'),
           el('div', { class: 'set-group' },
             el('div', { class: 'set-row stack' },
               el('div', { class: 'set-text' }, el('b', {}, 'App updates'), modeNote),
@@ -672,7 +685,7 @@ async function renderSettings() {
           renderSettings(); toast('Library emptied');
         } }, 'Delete all comics and boxes')),
 
-      el('p', { class: 'set-about' }, 'Comic Boxes 2.2. Your comics and settings are kept only on this device.')),
+      el('p', { class: 'set-about' }, 'Comic Boxes 2.3. Your comics and settings are kept only on this device.')),
   );
   window.scrollTo(0, 0);
 }
