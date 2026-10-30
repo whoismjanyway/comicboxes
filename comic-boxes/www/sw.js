@@ -8,7 +8,7 @@
 //     iPhones don't tell web apps whether they're on Wi-Fi or mobile data.
 //
 // Bump VERSION whenever you change any file in www/ so devices can pick up the update.
-const VERSION = 'comic-boxes-v9';
+const VERSION = 'comic-boxes-v10';
 const META = 'comic-boxes-meta'; // settings shared with the page: { updates, approvedUntil }
 
 const APP_FILES = [
