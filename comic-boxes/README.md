@@ -338,11 +338,16 @@ Send a whole box (with the boxes inside it) or a single issue from one phone, ta
 to another. **It only works over Wi-Fi, and never uses mobile data or the internet.**
 
 1. Put both devices on the **same Wi-Fi** (a phone's personal hotspot also works).
-2. On the device **getting** the comics, tap **+ → From another device**. It shows a QR code.
-3. On the device **sending** them, tap **⋯** on a box or issue → **Send to another device**,
-   and scan that QR code. The sender then shows its own QR code.
-4. Scan the sender's code with the receiving device.
-5. Both screens show the same 4-digit number. Check it, then tap **Accept** on the receiver.
+2. On the device **with the comics**, tap **⋯** on a box or issue → **Send to another device**.
+   A QR code appears.
+3. On the **other** device, tap **+ → Receive comics** and point it at that code.
+   It shows a QR code back.
+4. On the first device, tap **Scan its code** and point it at the other screen.
+5. Both screens show the same 4-digit number. Tap **Accept** on the receiving device.
+
+A bar at the top of both screens shows which of the three steps you're on. The same guide is
+in the app under **Settings → Sending comics**, and under **How does this work?** on both screens.
+A new, empty device also has a **Get comics from another device** button on its home screen.
 
 Keep both screens on and the app open until it finishes. Reading progress comes along. A box
 with the same name on the receiving device is joined instead of duplicated, and issues it
