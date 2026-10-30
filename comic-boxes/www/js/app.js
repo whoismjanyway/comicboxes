@@ -625,7 +625,7 @@ async function renderSettings() {
           el('div', { class: 'set-group' },
             el('div', { class: 'set-row' },
               el('div', { class: 'set-text' }, el('b', {}, 'Back up'),
-                el('small', { class: stale ? 'bad' : '' }, `${when} Saves every box, comic and reading progress in one file (about ${formatBytes(comics.reduce((t, c) => t + (c.size || 0), 0))}) to keep in Files or on a computer.`)),
+                el('small', { class: stale ? 'bad' : '' }, `${when} Saves every box, comic and reading progress (about ${formatBytes(comics.reduce((t, c) => t + (c.size || 0), 0))}) to keep in Files or on a computer.${backup.isApple() ? ' Big libraries are saved in parts.' : ''}`)),
               el('button', { class: 'btn', type: 'button', onclick: backupNow }, 'Back up')),
             el('div', { class: 'set-row' },
               el('div', { class: 'set-text' }, el('b', {}, 'Restore a backup'),
@@ -731,7 +731,7 @@ async function renderSettings() {
           renderSettings(); toast('Library emptied');
         } }, 'Delete all comics and boxes')),
 
-      el('p', { class: 'set-about' }, 'Comic Boxes 2.4. Your comics and settings are kept only on this device.')),
+      el('p', { class: 'set-about' }, 'Comic Boxes 2.5. Your comics and settings are kept only on this device.')),
   );
   window.scrollTo(0, 0);
 }
@@ -741,14 +741,49 @@ async function backupNow() {
   if (busy) { toast('Still adding comics. Try again when that finishes.'); return; }
   const b = await backup.makeBackup();
   if (!b.comics) { toast('There are no comics to back up yet.'); return; }
-  const how = await backup.saveFile(b.blob, b.name);
-  if (how === 'cancelled') return;
-  settings.set('lastBackup', Date.now());
-  toast(`Backup of ${plural(b.comics, 'comic', 'comics')} (${formatBytes(b.bytes)}) is ready. Keep the file safe, for example in Files or on a computer.`, 7000);
-  if (location.hash === '#/settings') renderSettings();
+  const done = () => {
+    settings.set('lastBackup', Date.now());
+    if (location.hash === '#/settings') renderSettings();
+  };
+  if (!backup.isApple()) {
+    await backup.saveFile(b.blob, b.name);
+    done();
+    toast(`Backup of ${plural(b.comics, 'comic', 'comics')} (${formatBytes(b.bytes)}) is downloading. Keep the file safe, for example on a computer or a USB drive.`, 7000);
+    return;
+  }
+  // iPhone/iPad: each file is saved from its own tap (the share sheet needs one), and big
+  // backups go in parts so the phone doesn't run out of memory.
+  const parts = backup.pieces(b);
+  let next = 0;
+  const step = el('p', { class: 'xfer-small', role: 'status' }, '');
+  const btn = el('button', { class: 'btn primary wide', type: 'button' });
+  const draw = () => {
+    btn.textContent = parts.length > 1 ? `Save part ${next + 1} of ${parts.length}` : 'Save the backup';
+    step.textContent = next ? `Part ${next} saved.` : '';
+  };
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    const how = await backup.saveFile(parts[next].blob, parts[next].name);
+    btn.disabled = false;
+    if (how === 'cancelled') { step.textContent = 'Not saved. Tap to try again.'; return; }
+    next++;
+    if (next < parts.length) { draw(); return; }
+    closeSheet();
+    done();
+    toast(parts.length > 1 ? `All ${parts.length} parts saved. Keep them together in one folder.` : 'Backup saved.', 6000);
+  });
+  draw();
+  openSheet([el('h3', {}, 'Back up your comics'),
+    el('p', { class: 'xfer-text' }, `${plural(b.comics, 'comic', 'comics')} in ${plural(b.boxes, 'box', 'boxes')}, ${formatBytes(b.bytes)}.`),
+    parts.length > 1
+      ? el('p', { class: 'xfer-text' }, `That's too big for an iPhone to save in one go, so it's saved as ${parts.length} parts. Tap the button for each part and choose `, el('b', {}, 'Save to Files'), '. Put all the parts in the same folder; to restore, pick them all at once.')
+      : el('p', { class: 'xfer-text' }, 'Tap the button and choose ', el('b', {}, 'Save to Files'), '.'),
+    btn, step,
+    el('div', { class: 'row' }, el('button', { class: 'btn', type: 'button', onclick: closeSheet }, 'Close'))]);
 }
 
-const backupInput = el('input', { type: 'file', accept: `${backup.EXT},application/octet-stream`, hidden: '' });
+// No "accept" filter: iPhones grey out file types they don't know, like .comicboxes.
+const backupInput = el('input', { type: 'file', id: 'backupInput', multiple: '', hidden: '' });
 document.body.append(backupInput);
 function pickBackup() { backupInput.click(); }
 backupInput.addEventListener('change', () => { const f = [...backupInput.files]; backupInput.value = ''; if (f.length) restoreFiles(f); });
@@ -762,10 +797,8 @@ async function restoreFiles(files) {
   let skipped = 0;
   let reload = false;
   try {
-    for (const f of files) {
-      const r = await backup.restore(f, (done, total, name) => showProgress(done, total, name));
-      added += r.added; skipped += r.skipped; reload = reload || r.settingsRestored;
-    }
+    const r = await backup.restoreAll(files, (done, total, name) => showProgress(done, total, name));
+    added = r.added; skipped = r.skipped; reload = r.settingsRestored;
     toast(added
       ? `Restored ${plural(added, 'comic', 'comics')}.${skipped ? ` ${plural(skipped, 'was', 'were')} already here.` : ''}`
       : 'Every comic in the backup is already here.', 5000);

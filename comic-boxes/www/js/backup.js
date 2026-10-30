@@ -13,6 +13,15 @@ import { pack, planMerge, saveComic } from './transfer.js';
 const MAGIC = 'COMIC-BOXES-BACKUP-1\n';
 export const EXT = '.comicboxes';
 
+// iPhones and iPads copy a file into memory to show the Save to Files sheet, so a big backup in
+// one piece crashes the app. There it's saved in parts of this size, one tap each. Each part
+// starts with a 64-byte label ("COMIC-BOXES-PART-1 <backup id> <part> <of>") and then carries the
+// next slice of the one-piece backup, so restoring just puts the slices back together.
+const PART_SIZE = 200 * 1024 * 1024;
+const PART_MAGIC = 'COMIC-BOXES-PART-1 ';
+const PART_HEAD = 64;
+export const isApple = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+
 const SETTING_KEYS = ['cb.settings', 'cb.theme', 'cb.rtl', 'cb.spread', 'cb.tapTurn', 'cb.awake'];
 
 export async function makeBackup() {
@@ -37,9 +46,23 @@ export async function makeBackup() {
 }
 
 // Hands the file to the person: a download, or on iPhone/iPad the share sheet ("Save to Files").
+// The backup as the files to save: one file, or on iPhone/iPad, parts small enough to share.
+export function pieces(b) {
+  if (!isApple() || b.blob.size <= PART_SIZE) return [{ blob: b.blob, name: b.name }];
+  const count = Math.ceil(b.blob.size / PART_SIZE);
+  const id = Math.random().toString(36).slice(2, 10);
+  const base = b.name.slice(0, -EXT.length);
+  return Array.from({ length: count }, (_, i) => {
+    const label = `${PART_MAGIC}${id} ${i + 1} ${count}`.padEnd(PART_HEAD - 1, ' ') + '\n';
+    return {
+      blob: new Blob([label, b.blob.slice(i * PART_SIZE, (i + 1) * PART_SIZE)], { type: 'application/octet-stream' }),
+      name: `${base} (part ${i + 1} of ${count})${EXT}`,
+    };
+  });
+}
+
 export async function saveFile(blob, name) {
-  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
-  if (ios && navigator.canShare) {
+  if (isApple() && navigator.canShare) {
     const file = new File([blob], name, { type: 'application/octet-stream' });
     if (navigator.canShare({ files: [file] })) {
       try { await navigator.share({ files: [file], title: name }); return 'shared'; } catch (e) {
@@ -60,7 +83,44 @@ export async function saveFile(blob, name) {
 
 export async function isBackup(file) {
   if (file.name && file.name.toLowerCase().endsWith(EXT)) return true;
-  try { return (await file.slice(0, MAGIC.length).text()) === MAGIC; } catch { return false; }
+  try {
+    const head = await file.slice(0, MAGIC.length).text();
+    return head === MAGIC || head.startsWith(PART_MAGIC);
+  } catch { return false; }
+}
+
+// Turns the picked files into whole backups: single files as they are, and parts put back
+// together in order. Throws a clear message if some parts are missing.
+async function assemble(files) {
+  const whole = [];
+  const groups = new Map();
+  for (const f of files) {
+    const head = await f.slice(0, PART_HEAD).text().catch(() => '');
+    if (head.startsWith(PART_MAGIC)) {
+      const [id, i, n] = head.slice(PART_MAGIC.length).trim().split(' ');
+      if (!groups.has(id)) groups.set(id, { n: Number(n), parts: new Map(), name: f.name });
+      groups.get(id).parts.set(Number(i), f);
+    } else whole.push(f);
+  }
+  for (const g of groups.values()) {
+    if (g.parts.size !== g.n) {
+      const missing = Array.from({ length: g.n }, (_, i) => i + 1).filter((i) => !g.parts.has(i));
+      throw new Error(`This backup is in ${g.n} parts. Pick all ${g.n} at once (missing: part ${missing.join(', ')}).`);
+    }
+    const ordered = Array.from({ length: g.n }, (_, i) => g.parts.get(i + 1).slice(PART_HEAD));
+    whole.push(new File(ordered, g.name.replace(/ \(part \d+ of \d+\)/, ''), { type: 'application/octet-stream' }));
+  }
+  return whole;
+}
+
+// Restores every backup among the picked files (single files or all the parts of one).
+export async function restoreAll(files, onProgress) {
+  const out = { added: 0, skipped: 0, settingsRestored: false };
+  for (const f of await assemble(files)) {
+    const r = await restore(f, onProgress);
+    out.added += r.added; out.skipped += r.skipped; out.settingsRestored = out.settingsRestored || r.settingsRestored;
+  }
+  return out;
 }
 
 async function readList(file) {

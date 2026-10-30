@@ -375,7 +375,10 @@ Guest and public Wi-Fi often keep devices apart; a home network or a phone's hot
 > **Settings → Check for updates**: it keeps your comics.
 
 **Backups.** **Settings → Keep your comics safe → Back up** saves every box, comic and reading
-progress into one `.comicboxes` file. On iPhone choose **Save to Files**; elsewhere it downloads.
+progress into one `.comicboxes` file; on Android and computers it downloads. On iPhone and iPad
+you tap **Save** and choose **Save to Files**; a library over 200 MB is saved in parts (one tap
+each), because an iPhone can't hand a bigger file to Save to Files without crashing. Keep all
+the parts in one folder, and pick them all at once to restore.
 Keep it somewhere outside the app (the Files app, a computer, a USB drive). To get everything
 back, tap **Restore** there (or **Had comics here before? Restore a backup** on an empty home
 screen) and pick the file. Restoring is safe to repeat: comics already there are skipped.
