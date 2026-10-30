@@ -511,3 +511,5 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .xfer-code-input { flex: 1; min-width: 0; min-height: 56px; padding: 0 14px; font: 700 26px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; border: 1px solid var(--line); border-radius: 14px; background: var(--sunken); color: var(--ink); -webkit-user-select: text; user-select: text; }
 .xfer-code-input::placeholder { color: var(--muted); opacity: .45; }
 .xfer-code-form .btn { min-height: 56px; }
+.xfer-tips { margin: 0 0 14px; padding-left: 22px; }
+.xfer-tips li { margin: 0 0 10px; line-height: 1.4; font-size: 15px; }

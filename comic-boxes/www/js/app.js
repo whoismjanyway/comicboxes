@@ -7,6 +7,7 @@ import * as settings from './settings.js';
 import { SECTIONS } from './settings.js';
 import { sendFlow, receiveFlow, showGuide } from './share.js';
 import * as backup from './backup.js';
+import { exactAddress } from './transfer.js';
 
 const $ = (id) => document.getElementById(id);
 const shelf = $('shelf');
@@ -702,7 +703,9 @@ async function renderSettings() {
 
       setGroup('Sending comics', 'Send boxes and issues to another phone, tablet or computer on the same Wi-Fi. Never over mobile data.',
         el('button', { class: 'set-action', type: 'button', onclick: () => showGuide(shareUI) }, 'How to send comics to another device'),
-        el('button', { class: 'set-action', type: 'button', onclick: receiveComics }, 'Receive comics')),
+        el('button', { class: 'set-action', type: 'button', onclick: receiveComics }, 'Receive comics'),
+        setRow('Use this device\'s exact address', 'Turn on if two devices can\'t connect. While connecting, the browser asks to use the microphone so it will share this device\'s Wi-Fi address. Nothing is recorded. One of the two devices is enough.',
+          toggle(exactAddress.on, 'Use this device\'s exact address', (v) => exactAddress.set(v)))),
 
       setGroup('Library', null,
         setRow('On this device', `${plural(comics.length, 'comic', 'comics')} in ${plural(boxes.length, 'box', 'boxes')}, using about ${formatBytes(used)}.`, null),
@@ -731,7 +734,7 @@ async function renderSettings() {
           renderSettings(); toast('Library emptied');
         } }, 'Delete all comics and boxes')),
 
-      el('p', { class: 'set-about' }, 'Comic Boxes 2.5. Your comics and settings are kept only on this device.')),
+      el('p', { class: 'set-about' }, 'Comic Boxes 2.6. Your comics and settings are kept only on this device.')),
   );
   window.scrollTo(0, 0);
 }

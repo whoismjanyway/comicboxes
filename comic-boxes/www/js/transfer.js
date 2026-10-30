@@ -172,19 +172,48 @@ class Link {
   // Receiver: reads the code shown by the sender.
   async finish(text) {
     const remote = readCode(text, 'answer');
+    this.theirCode = text;
     this.theirPrint = remote.fingerprint;
     await this.pc.setRemoteDescription({ type: 'answer', sdp: remote.sdp });
   }
 
   // Resolves with an open data channel, after checking the route is local.
   async open(ms = 25000) {
-    const dc = await withTimeout(this.channel.then((ch) => new Promise((resolve, reject) => {
-      if (ch.readyState === 'open') { resolve(ch); return; }
-      ch.addEventListener('open', () => resolve(ch), { once: true });
-      ch.addEventListener('error', () => reject(new Error('The connection failed.')), { once: true });
-    })), ms, 'Couldn\'t connect. Check that both devices are on the same Wi-Fi. Guest and public Wi-Fi often keep devices apart; a home network or a phone\'s hotspot works.');
+    const failed = new Promise((_, reject) => {
+      this.pc.addEventListener('iceconnectionstatechange', () => {
+        if (this.pc.iceConnectionState === 'failed') reject(new Error('failed'));
+      });
+    });
+    let dc;
+    try {
+      dc = await withTimeout(Promise.race([failed, this.channel.then((ch) => new Promise((resolve, reject) => {
+        if (ch.readyState === 'open') { resolve(ch); return; }
+        ch.addEventListener('open', () => resolve(ch), { once: true });
+        ch.addEventListener('error', () => reject(new Error('failed')), { once: true });
+      }))]), ms, 'timeout');
+    } catch {
+      const err = new Error('Couldn\'t connect. The two devices found each other, but couldn\'t reach each other over the Wi-Fi.');
+      err.diag = await this.diagnose();
+      throw err;
+    }
     await this.checkRoute();
     return dc;
+  }
+
+  // What happened while trying to connect, to explain a failure.
+  // Read from the two codes, which list exactly what each device offered.
+  async diagnose() {
+    const kinds = (code) => {
+      const list = String(code || '').split('|')[6] || '';
+      return [...new Set(list.split(',').filter(Boolean).map((c) => (c.slice(0, c.lastIndexOf('/')).endsWith('.local') ? 'name' : 'address')))];
+    };
+    let heard = false;
+    try {
+      (await this.pc.getStats()).forEach((st) => {
+        if (st.type === 'candidate-pair' && (st.requestsReceived > 0 || st.responsesReceived > 0)) heard = true;
+      });
+    } catch { /* no details */ }
+    return { mine: kinds(this.code), theirs: kinds(this.theirCode), heard };
   }
 
   async checkRoute() {
@@ -235,6 +264,22 @@ export async function hasWifiAddress() {
   } catch { return false; } finally { pc.close(); }
 }
 
+// Browsers hide this device's Wi-Fi address behind a private name (".local") unless the page may
+// use the camera or microphone. Some routers don't pass those names between devices, so the two
+// can't connect. With the person's OK, the microphone is opened (never recorded, nothing is sent)
+// just while connecting, so the browser puts the real address (like 192.168.1.20) in the code.
+// One of the two devices doing this is enough.
+const EXACT_KEY = 'cb.exactAddress';
+export const exactAddress = {
+  get on() { try { return localStorage.getItem(EXACT_KEY) === '1'; } catch { return false; } },
+  set(v) { try { if (v) localStorage.setItem(EXACT_KEY, '1'); else localStorage.removeItem(EXACT_KEY); } catch { /* ignore */ } },
+  // Returns a stream to stop once connected, or null.
+  async open() {
+    if (!this.on || !navigator.mediaDevices?.getUserMedia) return null;
+    try { return await navigator.mediaDevices.getUserMedia({ audio: true, video: false }); } catch { return null; }
+  },
+};
+
 export async function makeOffer() {
   const link = new Link();
   link.dc = link.pc.createDataChannel('comic-boxes', { ordered: true });
@@ -250,6 +295,7 @@ export async function makeAnswer(text) {
   const link = new Link();
   try {
     link.theirPrint = remote.fingerprint;
+    link.theirCode = text;
     await link.pc.setRemoteDescription({ type: 'offer', sdp: remote.sdp });
     await link.describe(await link.pc.createAnswer());
   } catch (e) { link.close(); throw e; }

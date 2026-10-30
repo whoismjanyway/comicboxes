@@ -362,6 +362,18 @@ those 2 KB could use mobile data if it isn't on Wi-Fi. To use your own ntfy serv
 **No internet on the Wi-Fi?** It still works: scan the QR code, then on the sending device tap
 **Scan its code** and scan the code the receiver shows back. Nothing uses the internet that way.
 
+**If the two devices can't connect** ("Couldn't connect"), the app lists what to check:
+
+- **On a Mac**, allow the browser on the local network: **System Settings → Privacy & Security →
+  Local Network**, turn on Chrome (or Safari/Edge), then quit and reopen the browser. Do it on both.
+- **Turn off VPNs**, including VPN extensions in the browser.
+- **Same Wi-Fi name** on both, not a guest network.
+- **Use this device's exact address** (button on that screen, or **Settings → Sending comics**).
+  Computers without a camera hide their Wi-Fi address behind a private name that many routers
+  don't pass between devices. With this on, the browser asks to use the microphone while
+  connecting, which makes it share the real address. Nothing is recorded, and it turns off once
+  connected. Turning it on for one of the two devices is enough.
+
 **Why it can't use mobile data for the comics:** the devices connect directly with no server in
 between, and only home-network addresses (like 192.168.x.x) are allowed, so the connection can
 only form inside one Wi-Fi network. A transfer stops if an Android phone switches to mobile data.
