@@ -222,6 +222,19 @@ class Link {
   }
 }
 
+// True if this device has a home-network address to connect from. Checked before a short code
+// is looked up online, so a device that isn't on Wi-Fi doesn't contact the relay at all.
+export async function hasWifiAddress() {
+  if (!('RTCPeerConnection' in window)) return false;
+  const pc = new RTCPeerConnection(RTC_CONFIG);
+  try {
+    pc.createDataChannel('probe');
+    await pc.setLocalDescription(await pc.createOffer());
+    await gathered(pc, 3000);
+    return compact(pc.localDescription).count > 0;
+  } catch { return false; } finally { pc.close(); }
+}
+
 export async function makeOffer() {
   const link = new Link();
   link.dc = link.pc.createDataChannel('comic-boxes', { ordered: true });
@@ -354,13 +367,24 @@ export async function pack(item) {
     const file = await db.get('files', c.id);
     if (!file || !file.blob) return;
     comics.push({
-      key: c.id, box: boxKey, meta: pickMeta(c),
+      key: c.id, box: boxKey, meta: pickMeta(c), added: c.added || 0,
       fileSize: file.blob.size, fileType: file.blob.type || '',
       coverSize: c.cover ? c.cover.size : 0, coverType: c.cover ? c.cover.type || 'image/jpeg' : '',
       file: file.blob, cover: c.cover || null,
     });
   };
-  if (item.box) {
+  if (item.everything) {
+    // The whole library, top-level boxes first so every box comes after the one it's in.
+    const all = await db.all('boxes');
+    const queue = all.filter((b) => b.parentId === ROOT);
+    while (queue.length) {
+      const b = queue.shift();
+      boxes.push({ key: b.id, name: b.name, parent: b.parentId === ROOT ? null : b.parentId });
+      for (const c of await db.byIndex('comics', 'boxId', b.id)) await addComic(c, b.id);
+      queue.push(...all.filter((x) => x.parentId === b.id));
+    }
+    for (const c of await db.byIndex('comics', 'boxId', ROOT)) await addComic(c, null);
+  } else if (item.box) {
     const all = await db.all('boxes');
     const queue = [item.box];
     while (queue.length) {
@@ -379,7 +403,8 @@ export async function pack(item) {
     await addComic(c, boxKey);
   }
   const bytes = comics.reduce((s, c) => s + c.fileSize + c.coverSize, 0);
-  return { title: item.box ? item.box.name : item.comic.name, kind: item.box ? 'box' : 'issue', boxes, comics, bytes };
+  const title = item.everything ? 'My boxes' : item.box ? item.box.name : item.comic.name;
+  return { title, kind: item.everything ? 'library' : item.box ? 'box' : 'issue', boxes, comics, bytes };
 }
 
 // ---------- sending ----------
@@ -447,35 +472,7 @@ export async function receive(dc, pc, { confirm, onProgress, onSaved }) {
   wire.send({ t: 'accept' });
   const manifest = await wire.expect('manifest', 60000);
 
-  // Boxes: reuse a box with the same name in the same place, so sending twice merges.
-  const allBoxes = await db.all('boxes');
-  const target = new Map();
-  for (const b of manifest.boxes || []) {
-    const parentId = b.parent == null ? ROOT : target.get(b.parent);
-    if (parentId == null) continue;
-    const name = str(b.name, 200) || 'Box';
-    let found = allBoxes.find((x) => x.parentId === parentId && x.name === name);
-    if (!found) {
-      found = { id: db.uid(), name, parentId, created: Date.now() };
-      await db.put('boxes', found);
-      allBoxes.push(found);
-    }
-    target.set(b.key, found.id);
-  }
-
-  // Issues already here (same original file name and size in that box) are skipped.
-  const items = [];
-  const existing = new Map();
-  for (const c of manifest.comics || []) {
-    const boxId = c.box == null ? ROOT : target.get(c.box);
-    if (boxId == null) continue;
-    if (!existing.has(boxId)) existing.set(boxId, await db.byIndex('comics', 'boxId', boxId));
-    const m = c.meta || {};
-    const dup = existing.get(boxId).some((x) => (m.origName
-      ? x.origName === m.origName && (!m.origSize || x.origSize === m.origSize)
-      : x.name === m.name && x.size === num(c.fileSize)));
-    if (!dup) items.push({ ...c, boxId });
-  }
+  const items = await planMerge(manifest);
   wire.send({ t: 'need', keys: items.map((c) => c.key) });
 
   const total = items.reduce((s, c) => s + num(c.fileSize) + num(c.coverSize), 0);
@@ -501,22 +498,11 @@ export async function receive(dc, pc, { confirm, onProgress, onSaved }) {
     };
     const coverParts = num(c.coverSize) ? await take(num(c.coverSize)) : null;
     const fileParts = await take(num(c.fileSize));
-    const meta = c.meta || {};
     const file = new Blob(fileParts, { type: str(c.fileType, 100) });
-    const comic = {
-      ...pickMeta(meta),
-      name: str(meta.name, 300) || 'Comic',
-      pages: num(meta.pages),
-      lastPage: num(meta.lastPage),
-      done: !!meta.done,
-      id: db.uid(),
-      boxId: c.boxId,
-      size: file.size,
-      added: Date.now(),
-      cover: coverParts ? new Blob(coverParts, { type: str(c.coverType, 100) || 'image/jpeg' }) : null,
-    };
+    const cover = coverParts ? new Blob(coverParts, { type: str(c.coverType, 100) || 'image/jpeg' }) : null;
+    let comic;
     try {
-      await db.addComic(comic, file);
+      comic = await saveComic({ ...c, added: 0 }, cover, file); // received now = newly added here
     } catch {
       try { wire.send({ t: 'error', message: 'The other device ran out of space.' }); } catch { /* closed */ }
       throw new Error('This device ran out of space. The comics received before this are kept.');
@@ -528,4 +514,57 @@ export async function receive(dc, pc, { confirm, onProgress, onSaved }) {
   wire.send({ t: 'bye', added });
   await wire.drain();
   return { added, skipped: (manifest.comics || []).length - items.length, from: str(hello.from, 40), title: str(hello.title) };
+}
+
+// ---------- shared by receiving and restoring a backup ----------
+// Makes the boxes in a manifest (reusing a box with the same name in the same place, so doing it
+// twice merges) and returns the issues that aren't here yet, each with the box it goes in.
+export async function planMerge(manifest) {
+  const allBoxes = await db.all('boxes');
+  const target = new Map();
+  for (const b of manifest.boxes || []) {
+    const parentId = b.parent == null ? ROOT : target.get(b.parent);
+    if (parentId == null) continue;
+    const name = str(b.name, 200) || 'Box';
+    let found = allBoxes.find((x) => x.parentId === parentId && x.name === name);
+    if (!found) {
+      found = { id: db.uid(), name, parentId, created: Date.now() };
+      await db.put('boxes', found);
+      allBoxes.push(found);
+    }
+    target.set(b.key, found.id);
+  }
+  // Issues already here (same original file name and size in that box) are skipped.
+  const items = [];
+  const existing = new Map();
+  for (const c of manifest.comics || []) {
+    const boxId = c.box == null ? ROOT : target.get(c.box);
+    if (boxId == null) continue;
+    if (!existing.has(boxId)) existing.set(boxId, await db.byIndex('comics', 'boxId', boxId));
+    const m = c.meta || {};
+    const dup = existing.get(boxId).some((x) => (m.origName
+      ? x.origName === m.origName && (!m.origSize || x.origSize === m.origSize)
+      : x.name === m.name && x.size === num(c.fileSize)));
+    if (!dup) items.push({ ...c, boxId });
+  }
+  return items;
+}
+
+// Saves one planned issue with its file and cover. Throws if the device is out of space.
+export async function saveComic(c, cover, file) {
+  const meta = c.meta || {};
+  const comic = {
+    ...pickMeta(meta),
+    name: str(meta.name, 300) || 'Comic',
+    pages: num(meta.pages),
+    lastPage: num(meta.lastPage),
+    done: !!meta.done,
+    id: db.uid(),
+    boxId: c.boxId,
+    size: file.size,
+    added: num(c.added) || Date.now(),
+    cover: cover || null,
+  };
+  await db.addComic(comic, file);
+  return comic;
 }

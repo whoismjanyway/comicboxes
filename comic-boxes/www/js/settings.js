@@ -23,6 +23,7 @@ const DEFAULTS = {
   readingCount: 12,
   updates: 'manual',    // manual | auto  (when the app may go online to update itself)
   lastUpdateCheck: 0,
+  lastBackup: 0,        // when the library was last saved to a backup file
 };
 
 const KEY = 'cb.settings';
@@ -55,8 +56,9 @@ export function set(name, value) {
 }
 
 export function reset() {
-  cache = { ...DEFAULTS };
-  try { localStorage.removeItem(KEY); } catch { /* ignore */ }
+  const keep = { lastBackup: load().lastBackup, lastUpdateCheck: load().lastUpdateCheck };
+  cache = { ...DEFAULTS, ...keep };
+  try { localStorage.setItem(KEY, JSON.stringify(keep)); } catch { /* ignore */ }
 }
 
 // Reader options live under their own keys ('1'/'0'), which the reader already uses.
