@@ -22,7 +22,7 @@ const PART_MAGIC = 'COMIC-BOXES-PART-1 ';
 const PART_HEAD = 64;
 export const isApple = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 
-const SETTING_KEYS = ['cb.settings', 'cb.theme', 'cb.rtl', 'cb.spread', 'cb.tapTurn', 'cb.awake'];
+const SETTING_KEYS = ['cb.settings', 'cb.theme', 'cb.rtl', 'cb.spread', 'cb.tapTurn', 'cb.awake', 'cb.book'];
 
 export async function makeBackup() {
   const p = await pack({ everything: true });

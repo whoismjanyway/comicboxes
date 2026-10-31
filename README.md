@@ -9,6 +9,8 @@ shop's long boxes, with boxes inside boxes, and read them with pinch-to-zoom. Wo
 
 - **Add whole folders:** subfolders become boxes inside boxes.
 - **Formats:** CBZ, CBR, CB7, CBT, PDF, EPUB, ZIP and folders of pictures. Even 1 GB files work on a phone.
+- **Books:** EPUB, MOBI, FB2 and TXT, with your choice of font, text size, line spacing, margins,
+  alignment and page color (white, sepia, gray, black), page by page or scrolling.
 - **Reader:** pinch and double-tap zoom, swipe or tap to turn pages, two-page view on tablets, Manga mode.
 - **Black or white theme**, a Keep reading row, and a Settings page to arrange everything.
 - **Send boxes or issues to another device** on the same Wi-Fi by typing a short code or scanning a QR code.

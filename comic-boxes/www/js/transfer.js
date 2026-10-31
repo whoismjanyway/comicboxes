@@ -402,7 +402,7 @@ export function deviceName() {
 
 // ---------- what gets sent ----------
 // Fields of a comic record that travel with it. Reading progress comes along.
-const META_FIELDS = ['name', 'pages', 'format', 'source', 'origName', 'origSize', 'lastPage', 'done', 'opened', 'color', 'colors', 'ratio'];
+const META_FIELDS = ['name', 'author', 'pages', 'format', 'source', 'origName', 'origSize', 'lastPage', 'done', 'opened', 'color', 'colors', 'ratio', 'pos', 'chPos'];
 const pickMeta = (c) => Object.fromEntries(META_FIELDS.filter((k) => c[k] !== undefined).map((k) => [k, c[k]]));
 
 // item = { box } or { comic }. Returns what will be sent, without reading any comic files yet.
@@ -604,6 +604,9 @@ export async function saveComic(c, cover, file) {
     name: str(meta.name, 300) || 'Comic',
     pages: num(meta.pages),
     lastPage: num(meta.lastPage),
+    pos: Math.min(1, num(meta.pos)),
+    chPos: Math.min(1, num(meta.chPos)),
+    author: meta.author ? str(meta.author, 200) : undefined,
     done: !!meta.done,
     id: db.uid(),
     boxId: c.boxId,
