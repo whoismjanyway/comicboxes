@@ -4,17 +4,23 @@
 //   .cbr .rar          extracted with libarchive (WASM), saved as CBZ
 //   .cb7 .7z           extracted with libarchive, saved as CBZ
 //   .cbt .tar          extracted with libarchive, saved as CBZ
-//   .epub              pages put in reading order, saved as CBZ
+//   .epub              a book with text: kept as EPUB and read in the book reader (book.js)
+//                      only pictures (comics, manga): pages put in reading order, saved as CBZ
+//   .mobi .prc .azw    Kindle books without DRM, kept as they are (book.js)
+//   .fb2 .txt          books, kept as they are (book.js)
 //   .pdf               kept as PDF, pages drawn with pdf.js while reading
 //   folder of images   packed into a CBZ
 //
-// Converting at import time means the reader only ever deals with CBZ or PDF.
+// Converting comics at import time means the comic reader only ever deals with CBZ or PDF.
 
 import { LazyZip, writeZip } from './zip.js';
 import { lazyRar } from './rar.js';
+import { bookInfo, bookFormatFor, plainCover, BookError } from './book.js';
 
 export const IMAGE_RE = /\.(jpe?g|png|gif|webp|avif|bmp|jxl)$/i;
-export const COMIC_RE = /\.(cbz|zip|cbr|rar|cb7|7z|cbt|tar|pdf|epub)$/i;
+export const COMIC_RE = /\.(cbz|zip|cbr|rar|cb7|7z|cbt|tar|pdf|epub|mobi|prc|azw|azw3|fb2|txt)$/i;
+// Plain text files are only books when picked on their own (not a readme next to comics).
+export const TEXT_RE = /\.txt$/i;
 const LIBARCHIVE_RE = /\.(cbr|rar|cb7|7z|cbt|tar)$/i;
 const JUNK_RE = /(^|\/)(__MACOSX|\.[^/]*|Thumbs\.db)(\/|$)/i;
 
@@ -318,13 +324,48 @@ async function fromLibarchive(file) {
   }
 }
 
+// Books keep their original file. The cover is the book's own picture, or a plain one with its title.
+async function fromBook(file, format, source) {
+  let info;
+  try {
+    info = await bookInfo(file, format);
+  } catch (e) {
+    if (e instanceof BookError) throw new ImportError(`${file.name}: ${e.message}`);
+    throw e;
+  }
+  if (!info) return null;
+  const title = info.title || prettyName(file.name);
+  let look = null;
+  if (info.cover) { try { look = await makeCover(info.cover); } catch { look = null; } }
+  if (!look) look = await plainCover(title, info.author);
+  return { blob: file, format, source, pages: info.chapters, cover: look.cover, color: look.color, ratio: look.ratio,
+    title: info.title, author: info.author };
+}
+
 async function fromEpub(file) {
+  // A book with text is read as a book; an EPUB of pictures (comics, manga) becomes a comic.
+  // If it can't be read as a book, it's still tried as pictures.
+  let bookError = null;
+  const asBook = await fromBook(file, 'epub', 'EPUB').catch((e) => {
+    console.warn(e);
+    if (e instanceof ImportError) bookError = e;
+    return null;
+  });
+  if (asBook) return asBook;
+  try {
+    return await epubAsComic(file);
+  } catch (e) {
+    throw bookError || e;
+  }
+}
+
+async function epubAsComic(file) {
   checkWholeFile(file, 'EPUB');
   // eslint-disable-next-line no-undef
   const zip = await JSZip.loadAsync(file);
   const ordered = await epubPageOrder(zip);
   const entries = ordered.length ? ordered : imageEntries(zip);
-  if (!entries.length) throw new ImportError(`${file.name} has no pictures inside.`);
+  if (!entries.length) throw new ImportError(`${file.name} has nothing to read inside. It may be damaged.`);
   const images = [];
   for (const e of entries) images.push({ name: e.name, blob: new Blob([await e.async('blob')], { type: mimeFor(e.name) }) });
   const cbz = await packCbz(images);
@@ -418,8 +459,15 @@ export async function importComic(file) {
   }
   if (LIBARCHIVE_RE.test(file.name)) return fromLibarchive(file);
   if (ext === 'epub') return fromEpub(file);
+  const bookFormat = bookFormatFor(ext);
+  if (bookFormat) {
+    const source = ext === 'prc' || ext === 'azw' ? 'MOBI' : ext.toUpperCase();
+    const r = await fromBook(file, bookFormat, source);
+    if (!r) throw new ImportError(`${file.name} has nothing to read inside.`);
+    return r;
+  }
   if (ext === 'pdf') return fromPdf(file);
-  throw new ImportError(`${file.name} isn't a comic file.`);
+  throw new ImportError(`${file.name} isn't a comic or book file.`);
 }
 
 // A .zip that holds comic files (or folders of comics) is treated like a folder.

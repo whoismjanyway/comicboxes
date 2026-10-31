@@ -11,7 +11,7 @@
 // box (same file name and size) are skipped, so importing the same folder twice is safe.
 
 import * as db from './db.js';
-import { COMIC_RE, IMAGE_RE, isJunk, importComic, fromImages, expandFolderZip, prettyName, ImportError } from './comic.js';
+import { COMIC_RE, TEXT_RE, IMAGE_RE, isJunk, importComic, fromImages, expandFolderZip, prettyName, ImportError } from './comic.js';
 
 const folderName = (s) => s.replace(/_+/g, ' ').replace(/\s+/g, ' ').trim() || 'Untitled';
 
@@ -86,8 +86,11 @@ export async function plan(entries) {
   const jobs = [];
   let ignored = 0;
   const walk = (n, boxPath, isRoot) => {
-    const comics = n.files.filter((f) => COMIC_RE.test(f.name));
+    let comics = n.files.filter((f) => COMIC_RE.test(f.name));
     const images = n.files.filter((f) => IMAGE_RE.test(f.name));
+    // Inside a folder, a .txt next to comics or pictures is a note (readme, info), not a book.
+    // Text files picked on their own are always added.
+    if (!isRoot && (images.length || comics.some((f) => !TEXT_RE.test(f.name)))) comics = comics.filter((f) => !TEXT_RE.test(f.name));
     const dirs = [...n.dirs.values()].filter(hasContent);
     ignored += n.files.length - comics.length - images.length;
 
@@ -152,7 +155,8 @@ export async function run({ jobs }, baseBoxId, onProgress = () => {}) {
         : await fromImages(job.name, job.files);
 
       await db.addComic({
-        id: db.uid(), name: job.name, boxId, pages: info.pages, format: info.format, source: info.source,
+        // Books use the title written inside them; file names of books are often just numbers.
+        id: db.uid(), name: info.title || job.name, author: info.author || undefined, boxId, pages: info.pages, format: info.format, source: info.source,
         origName, origSize: job.size || info.blob.size, size: info.blob.size,
         lastPage: 0, done: false, added: Date.now(), cover: info.cover, color: info.color, ratio: info.ratio,
       }, info.blob);

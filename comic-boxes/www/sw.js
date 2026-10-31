@@ -8,13 +8,13 @@
 //     iPhones don't tell web apps whether they're on Wi-Fi or mobile data.
 //
 // Bump VERSION whenever you change any file in www/ so devices can pick up the update.
-const VERSION = 'comic-boxes-v11';
+const VERSION = 'comic-boxes-v12';
 const META = 'comic-boxes-meta'; // settings shared with the page: { updates, approvedUntil }
 
 const APP_FILES = [
   './', 'index.html', 'css/styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/db.js', 'js/comic.js', 'js/importer.js', 'js/reader.js', 'js/settings.js', 'js/zip.js', 'js/rar.js',
-  'js/qr.js', 'js/transfer.js', 'js/share.js', 'js/relay.js', 'js/backup.js',
+  'js/qr.js', 'js/transfer.js', 'js/share.js', 'js/relay.js', 'js/backup.js', 'js/book.js', 'js/bookreader.js',
 ];
 const STATIC_FILES = [
   'fonts/BarlowCondensed-SemiBold.woff', 'fonts/BarlowCondensed-ExtraBold.woff', 'fonts/PermanentMarker.woff',

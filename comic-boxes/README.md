@@ -10,6 +10,9 @@ boxes (for example a *Fantastic Four* box inside a *Marvel* box).
   goes into a box with that name. Folders inside it become boxes inside that box.
 - **Many formats:** CBZ, CBR (RAR 4 and RAR 5), CB7 (7-Zip), CBT (tar), PDF, EPUB, ZIP,
   and folders of pictures (JPG, PNG, WebP, GIF, AVIF).
+- **Books too:** EPUB novels, MOBI (Kindle books without DRM), FB2 and TXT, with a book reader
+  where you pick the **font, text size, line spacing, margins, alignment and page color**
+  (white, sepia, gray or black), and turn pages or scroll.
 - Boxes show the covers of the comics inside them peeking out, plus divider tabs for the boxes inside.
 - Issues hang in their bags on a slatwall, with a sticker showing **NEW**, the page you're on, or **READ**.
 - **Black or white theme** with the switch at the top. It remembers your choice.
@@ -35,6 +38,8 @@ comic-boxes/
     ├── js/importer.js      ← adding files and folders (folders → boxes)
     ├── js/comic.js         ← reading every comic format
     ├── js/reader.js        ← the reader: paging and zoom
+    ├── js/book.js          ← opening books: EPUB, MOBI, FB2, TXT
+    ├── js/bookreader.js    ← the book reader: fonts, text size, colors, pages or scroll
     ├── js/db.js            ← on-device storage (IndexedDB)
     ├── js/share.js         ← Send to / receive from another device: the screens
     ├── js/transfer.js      ← …the Wi-Fi-only connection and what gets sent
@@ -288,6 +293,34 @@ Tap the **gear** button at the top. Everything here is saved on the device.
 On a computer: arrow keys turn pages, `+` / `-` zoom, `0` resets zoom,
 mouse wheel or trackpad pinch zooms, `Esc` goes back.
 
+### Reading books
+
+EPUB, MOBI, FB2 and TXT books open in a book reader, where the text flows to fit your screen.
+
+| Do this | To |
+|---|---|
+| Swipe left / right, or tap the right or left edge | Next / previous page |
+| Tap the middle | Show or hide the controls |
+| **Contents** button (the list) | Jump to a chapter |
+| **Aa** button | Change how the text looks (below) |
+| Slider at the bottom | Jump anywhere in the book |
+| Tap a link or footnote | Go there; **Back** returns to where you were |
+
+The **Aa** button changes, live while you read:
+
+- **Size:** smaller or bigger text (60% to 250%).
+- **Font:** the book's own, Serif, Sans, Rounded or Mono.
+- **Line spacing:** tight, normal or loose.
+- **Margins:** narrow, normal or wide.
+- **Alignment:** the book's own, left, or justified (with hyphenation).
+- **Page color:** white, sepia, gray or black. Until you pick one it follows the app's theme.
+- **Layout:** page by page, or one long scroll per chapter.
+- **Two columns** on tablets and wide screens held sideways.
+
+These are remembered for every book, and the main ones are also under **Settings → Books**.
+Your place is saved as you read, and the book's card shows how far in you are (for example **42%**).
+On a computer: arrow keys and space turn pages, `+` / `-` change the text size, `Esc` goes back.
+
 ### Supported formats
 
 | Format | Notes |
@@ -297,10 +330,14 @@ mouse wheel or trackpad pinch zooms, `Esc` goes back.
 | `.cb7`, `.7z` | Converted to CBZ when added |
 | `.cbt`, `.tar` | Converted to CBZ when added |
 | `.pdf` | Read in pieces and drawn sharp at your screen's resolution |
-| `.epub` | Comic/manga EPUBs with one picture per page, in the book's reading order |
+| `.epub` | Books with text open in the book reader. EPUBs that are only pictures (comics, manga) become comics, in the book's reading order |
+| `.mobi`, `.prc`, `.azw` | Kindle books without DRM, read in the book reader |
+| `.fb2` | FictionBook, read in the book reader (pictures and footnotes included) |
+| `.txt` | Plain text, split into chapters at headings like "Chapter 1". A `.txt` inside a folder of comics (a readme) is skipped |
 | Folder of pictures | JPG, PNG, WebP, GIF, AVIF, BMP. Becomes one comic |
 
-Not supported: password-protected archives and PDFs, and text-only (novel) EPUBs.
+Not supported: password-protected archives and PDFs, copy-protected (DRM) books, and AZW3/KF8
+Kindle books (convert those to EPUB, for example with Calibre).
 A badly damaged file is skipped and the app tells you which one.
 
 ### Very large files on a phone
@@ -400,8 +437,8 @@ Comic Boxes' storage when the device runs low on space, with a button to ask for
 
 ### Storage
 
-Comics are copied into the app's private storage on the device (CBR/CB7/CBT/EPUB are
-stored as CBZ), so you can delete the
+Comics are copied into the app's private storage on the device (CB7/CBT and picture EPUBs are
+stored as CBZ; books are kept as they are), so you can delete the
 original file afterwards if you want. A typical issue is 20–80 MB, so watch your free space.
 Deleting the app (or, for the home-screen version, clearing the browser's website data)
 deletes your library.

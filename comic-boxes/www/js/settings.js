@@ -85,3 +85,40 @@ export function resolvedTheme() {
   if (t !== 'auto') return t;
   return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
+
+// How books (EPUB, MOBI, FB2, TXT) are shown. Changed from the Aa button in the book reader.
+export const BOOK_DEFAULTS = {
+  font: 'original',   // original | serif | sans | rounded | mono
+  size: 100,          // text size, percent
+  spacing: 'normal',  // tight | normal | loose   (space between lines)
+  margins: 'normal',  // narrow | normal | wide
+  align: 'original',  // original | left | justify
+  theme: '',          // white | sepia | gray | black; empty = follow the app's theme
+  layout: 'pages',    // pages | scroll
+  columns: true,      // two columns on wide screens held sideways
+};
+const BOOK_KEY = 'cb.book';
+let bookCache = null;
+export const bookPrefs = {
+  all() {
+    if (!bookCache) {
+      let saved = {};
+      try { saved = JSON.parse(localStorage.getItem(BOOK_KEY) || '{}') || {}; } catch { saved = {}; }
+      bookCache = { ...BOOK_DEFAULTS, ...saved };
+    }
+    return bookCache;
+  },
+  get(name) { return this.all()[name]; },
+  set(name, value) {
+    this.all()[name] = value;
+    try { localStorage.setItem(BOOK_KEY, JSON.stringify(bookCache)); } catch { /* private mode */ }
+  },
+  reset() {
+    bookCache = { ...BOOK_DEFAULTS };
+    try { localStorage.removeItem(BOOK_KEY); } catch { /* ignore */ }
+  },
+  theme() {
+    const t = this.get('theme');
+    return ['white', 'sepia', 'gray', 'black'].includes(t) ? t : (resolvedTheme() === 'dark' ? 'black' : 'white');
+  },
+};

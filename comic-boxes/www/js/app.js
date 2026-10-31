@@ -3,8 +3,10 @@ import { ROOT } from './db.js';
 import { naturalCompare } from './comic.js';
 import { entriesFromFiles, entriesFromDrop, plan, run } from './importer.js';
 import { Reader } from './reader.js';
+import { BookReader } from './bookreader.js';
+import { isBookFormat } from './book.js';
 import * as settings from './settings.js';
-import { SECTIONS } from './settings.js';
+import { SECTIONS, bookPrefs } from './settings.js';
 import { sendFlow, receiveFlow, showGuide } from './share.js';
 import * as backup from './backup.js';
 import { exactAddress } from './transfer.js';
@@ -46,6 +48,9 @@ const ICON = {
 };
 // Comics added by the first version stored `colors` instead of `color`.
 const tint = (c) => c.color || (c.colors && c.colors[0]) || '';
+// Books (EPUB, MOBI, FB2, TXT) keep their place as a fraction of the book (pos) instead of a page.
+const isBook = (c) => isBookFormat(c.format);
+const started = (c) => !c.done && (c.lastPage > 0 || c.pos > 0);
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 let toastTimer;
@@ -88,15 +93,16 @@ applyCoverSize();
 
 // ---------- routing ----------
 let openedFromLibrary = false;
-const reader = new Reader({
-  onClose: () => {
-    if (openedFromLibrary) { openedFromLibrary = false; history.back(); } else goBox(currentBox);
-  },
-});
+const closeReader = () => {
+  if (openedFromLibrary) { openedFromLibrary = false; history.back(); } else goBox(currentBox);
+};
+const reader = new Reader({ onClose: closeReader });
+const bookReader = new BookReader({ onClose: closeReader });
+const closeReaders = () => { reader.close(); bookReader.close(); };
 
 function route() {
   if (location.hash === '#/settings') {
-    reader.close();
+    closeReaders();
     renderSettings();
     return;
   }
@@ -104,7 +110,7 @@ function route() {
   if (kind === 'read') {
     openReader(decodeURIComponent(id));
   } else {
-    reader.close();
+    closeReaders();
     currentBox = kind === 'box' ? decodeURIComponent(id) : ROOT;
     render();
   }
@@ -120,12 +126,14 @@ async function openReader(id) {
   currentBox = comic.boxId;
   await db.put('comics', { ...comic, opened: Date.now() });
   $('library').setAttribute('aria-hidden', 'true');
+  const which = isBook(comic) ? bookReader : reader;
+  (which === reader ? bookReader : reader).close();
   try {
-    await reader.open(comic);
+    await which.open(comic);
   } catch (e) {
     console.error(e);
     toast(`Couldn't open ${comic.name}. The file may be damaged.`);
-    reader.close();
+    which.close();
     goBox(comic.boxId);
   }
 }
@@ -144,7 +152,7 @@ async function render() {
   gridObservers.forEach((o) => o.disconnect());
   gridObservers = [];
   // Free cover pictures that aren't in this box anymore.
-  const keep = new Set([...childComics.map((c) => c.id), ...comics.filter((c) => c.lastPage > 0 && !c.done).map((c) => c.id)]);
+  const keep = new Set([...childComics.map((c) => c.id), ...comics.filter(started).map((c) => c.id)]);
   for (const b of childBoxes) for (const c of lib.covers(b.id)) keep.add(c.id);
   for (const id of [...coverUrls.keys()]) if (!keep.has(id)) forgetCover(id);
   shelf.replaceChildren();
@@ -161,7 +169,7 @@ async function render() {
     issues: () => childComics.length && section(isRoot ? 'Not in a box' : 'Issues', childComics.length,
       lazyGrid('grid issues', childComics, (c) => issueCard(c), 48)),
     reading: () => {
-      const reading = comics.filter((c) => c.lastPage > 0 && !c.done)
+      const reading = comics.filter(started)
         .sort((a, b) => (b.opened || 0) - (a.opened || 0)).slice(0, settings.get('readingCount'));
       return reading.length && section('Keep reading', null,
         el('div', { class: 'strip' }, reading.map((c) => issueCard(c, lib.box.get(c.boxId)?.name || 'Not in a box'))));
@@ -315,12 +323,16 @@ function boxCard(box, lib) {
 }
 
 function issueCard(c, where) {
+  const book = isBook(c);
+  let pct = 0;
+  if (started(c)) pct = book ? Math.max(1, Math.round((c.pos || 0) * 100)) : Math.round(((c.lastPage + 1) / c.pages) * 100);
   let sticker;
   if (c.done) sticker = el('span', { class: 'sticker read' }, 'READ');
-  else if (!c.lastPage) sticker = el('span', { class: 'sticker new' }, 'NEW');
-  else sticker = el('span', { class: 'sticker' }, `${c.lastPage + 1}/${c.pages}`);
-  const pct = !c.done && c.lastPage ? Math.round(((c.lastPage + 1) / c.pages) * 100) : 0;
-  const meta = where || [plural(c.pages || 0, 'page', 'pages'), c.source && !['CBZ', 'Images'].includes(c.source) ? c.source : null].filter(Boolean).join(', ');
+  else if (!started(c)) sticker = el('span', { class: 'sticker new' }, 'NEW');
+  else sticker = el('span', { class: 'sticker' }, book ? `${pct}%` : `${c.lastPage + 1}/${c.pages}`);
+  const meta = where || (book
+    ? [c.author, c.source].filter(Boolean).join(', ')
+    : [plural(c.pages || 0, 'page', 'pages'), c.source && !['CBZ', 'Images'].includes(c.source) ? c.source : null].filter(Boolean).join(', '));
 
   return el('div', { class: 'card issue-card' },
     el('button', { class: 'issue', type: 'button', onclick: () => goRead(c.id), oncontextmenu: (e) => { e.preventDefault(); comicMenu(c); } },
@@ -341,11 +353,11 @@ function emptyState(isRoot) {
     boxArt(isRoot ? 'Comics' : $('title').textContent),
     el('h2', {}, isRoot ? 'Fill your first box' : 'This box is empty'),
     el('p', {}, isRoot
-      ? 'Add a folder of comics and its subfolders become boxes inside boxes. Or add single comic files.'
+      ? 'Add a folder of comics and its subfolders become boxes inside boxes. Or add single comic files and books.'
       : 'Add comics or a folder here. Folders inside it become smaller boxes.'),
     el('div', { class: 'btns' },
       el('button', { class: 'btn primary', type: 'button', onclick: () => folderInput.click() }, svg(ICON.folder), 'Add a folder'),
-      el('button', { class: 'btn', type: 'button', onclick: () => fileInput.click() }, svg(ICON.file), 'Add comic files'),
+      el('button', { class: 'btn', type: 'button', onclick: () => fileInput.click() }, svg(ICON.file), 'Add comics or books'),
       el('button', { class: 'btn', type: 'button', onclick: newBox }, svg(ICON.box), 'New empty box'),
       isRoot && el('button', { class: 'btn', type: 'button', onclick: receiveComics }, svg(ICON.receive), 'Get comics from another device')),
     isRoot && el('button', { class: 'link-btn', type: 'button', onclick: pickBackup }, 'Had comics here before? Restore a backup'));
@@ -447,7 +459,7 @@ function addMenu() {
   openSheet([
     el('h3', {}, `Add to ${where}`),
     bigMenuBtn(ICON.folder, 'A folder', 'Every comic inside is added. Folders inside it become boxes inside this box.', () => folderInput.click(), true),
-    bigMenuBtn(ICON.file, 'Comic files', 'CBZ, CBR, CB7, CBT, PDF or EPUB. Pick as many as you like.', () => fileInput.click()),
+    bigMenuBtn(ICON.file, 'Comic files and books', 'Comics: CBZ, CBR, CB7, CBT, PDF. Books: EPUB, MOBI, FB2, TXT. Pick as many as you like.', () => fileInput.click()),
     bigMenuBtn(ICON.box, 'New empty box', 'Name it now and fill it later.', newBox),
     bigMenuBtn(ICON.receive, 'Receive comics', 'From another phone, tablet or computer on the same Wi-Fi.', receiveComics),
     el('p', { class: 'hint' }, 'Phone can\'t pick folders? Zip the folder and add the .zip under Comic files. It turns into boxes the same way.'),
@@ -475,7 +487,7 @@ function boxMenu(box) {
 }
 
 function comicMenu(c) {
-  const unread = c.done || c.lastPage;
+  const unread = c.done || started(c);
   openSheet([el('h3', {}, c.name),
     menuBtn('Read', () => goRead(c.id)),
     menuBtn('Rename', async () => {
@@ -488,7 +500,7 @@ function comicMenu(c) {
       if (target != null && target !== c.boxId) { await db.put('comics', { ...c, boxId: target }); render(); toast('Comic moved'); }
     }),
     menuBtn(unread ? 'Mark as unread' : 'Mark as read', async () => {
-      await db.put('comics', { ...c, done: !unread, lastPage: 0 }); render();
+      await db.put('comics', { ...c, done: !unread, lastPage: 0, pos: 0, chPos: 0 }); render();
     }),
     menuBtn('Delete comic', async () => {
       if (await confirmSheet(`Delete "${c.name}"?`, 'The comic is removed from this device.', 'Delete')) {
@@ -663,7 +675,7 @@ async function renderSettings() {
         setRow('Boxes', null,
           segmented('Sort boxes by', [['name', 'Name'], ['added', 'Newest']], settings.get('boxSort'), (v) => settings.set('boxSort', v)), true)),
 
-      setGroup('Reader', null,
+      setGroup('Comic reader', null,
         setRow('Manga mode', 'Read right to left. You can still switch it for one comic in the reader.',
           toggle(pref.get('rtl', false), 'Manga mode', (v) => pref.set('rtl', v))),
         setRow('Two-page view', 'Show pages side by side on tablets and wide screens held sideways.',
@@ -672,6 +684,17 @@ async function renderSettings() {
           toggle(pref.get('tapTurn', true), 'Tap the edges to turn pages', (v) => pref.set('tapTurn', v))),
         setRow('Keep the screen on', canWake ? 'Stops the screen from dimming while you read.' : 'This device or browser doesn\'t allow it.',
           toggle(canWake && pref.get('awake', false), 'Keep the screen on', (v) => pref.set('awake', v), !canWake))),
+
+      setGroup('Books', 'For EPUB, MOBI, FB2 and TXT books. While reading, the Aa button changes these and more: line spacing, margins and alignment.',
+        setRow('Font', null,
+          segmented('Font', [['original', 'Book\'s own'], ['serif', 'Serif'], ['sans', 'Sans']], bookPrefs.get('font'), (v) => bookPrefs.set('font', v)), true),
+        setRow('Text size', null,
+          segmented('Text size', [[80, 'Small'], [100, 'Medium'], [125, 'Large'], [150, 'Extra large']],
+            [80, 100, 125, 150].includes(bookPrefs.get('size')) ? bookPrefs.get('size') : null, (v) => bookPrefs.set('size', v)), true),
+        setRow('Page color', 'The app\'s theme is used until you pick one.',
+          segmented('Page color', [['white', 'White'], ['sepia', 'Sepia'], ['gray', 'Gray'], ['black', 'Black']], bookPrefs.get('theme'), (v) => bookPrefs.set('theme', v)), true),
+        setRow('Turning pages', null,
+          segmented('Turning pages', [['pages', 'Page by page'], ['scroll', 'Scroll']], bookPrefs.get('layout'), (v) => bookPrefs.set('layout', v)), true)),
 
       (() => {
         const desc = (v) => (v === 'auto'
@@ -717,12 +740,12 @@ async function renderSettings() {
         })(),
         el('button', { class: 'set-action', type: 'button', onclick: async () => {
           if (!await confirmSheet('Mark every comic as unread?', 'Reading progress is cleared for all comics. The comics stay.', 'Mark unread')) return;
-          for (const c of await db.all('comics')) if (c.lastPage || c.done) await db.put('comics', { ...c, lastPage: 0, done: false });
+          for (const c of await db.all('comics')) if (c.lastPage || c.pos || c.done) await db.put('comics', { ...c, lastPage: 0, pos: 0, chPos: 0, done: false });
           toast('All comics marked as unread');
         } }, 'Mark everything as unread'),
         el('button', { class: 'set-action', type: 'button', onclick: async () => {
           if (!await confirmSheet('Reset settings?', 'Section order, sorting, sizes, theme and reader options go back to how they started. Your comics stay.', 'Reset')) return;
-          settings.reset(); settings.setTheme('auto');
+          settings.reset(); settings.setTheme('auto'); bookPrefs.reset();
           ['rtl', 'spread', 'tapTurn', 'awake'].forEach((k) => { try { localStorage.removeItem(`cb.${k}`); } catch { /* ignore */ } });
           applyTheme(settings.resolvedTheme()); applyCoverSize(); renderSettings(); toast('Settings reset');
         } }, 'Reset settings'),
@@ -734,7 +757,7 @@ async function renderSettings() {
           renderSettings(); toast('Library emptied');
         } }, 'Delete all comics and boxes')),
 
-      el('p', { class: 'set-about' }, 'Comic Boxes 2.6. Your comics and settings are kept only on this device.')),
+      el('p', { class: 'set-about' }, 'Comic Boxes 2.7. Your comics and settings are kept only on this device.')),
   );
   window.scrollTo(0, 0);
 }
@@ -836,7 +859,7 @@ async function importEntries(entriesPromise) {
     if (!entries.length) return;
     const p = await plan(entries);
     if (!p.jobs.length) {
-      toast('No comics found. Comic Boxes reads CBZ, CBR, CB7, CBT, PDF, EPUB and folders of pictures.', 5000);
+      toast('No comics or books found. Comic Boxes reads CBZ, CBR, CB7, CBT, PDF, EPUB, MOBI, FB2, TXT and folders of pictures.', 5000);
       return;
     }
     let lastRender = Date.now();

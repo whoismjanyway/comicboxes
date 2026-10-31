@@ -77,6 +77,44 @@
     </footer>
   </div>
 
+  <!-- Book reader (EPUB, MOBI, FB2, TXT) -->
+  <div id="bookReader" class="reader book-reader" hidden>
+    <div class="book-stage" id="bookStage">
+      <div class="book-clip" id="bookClip">
+        <button class="book-ch-btn" id="bookPrevCh" type="button" hidden></button>
+        <div class="book-sheet" id="bookSheet">
+          <iframe id="bookFrame" title="Book page" sandbox="allow-same-origin" tabindex="-1"></iframe>
+          <div class="book-touch" id="bookTouch"></div>
+        </div>
+        <button class="book-ch-btn" id="bookNextCh" type="button" hidden></button>
+      </div>
+      <div class="book-loading" id="bookLoading" hidden>Opening…</div>
+      <div class="book-status" aria-hidden="true"><span id="bookStatusLeft"></span><span id="bookStatusRight"></span></div>
+    </div>
+    <button class="book-back" id="bookBack" type="button" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>Back
+    </button>
+    <header class="reader-bar top">
+      <button class="icon-btn" id="closeBook" type="button" aria-label="Back to box">
+        <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <h1 class="reader-title" id="bookTitle"></h1>
+      <button class="icon-btn" id="bookTocBtn" type="button" aria-label="Contents" aria-expanded="false" aria-controls="bookToc">
+        <svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>
+      </button>
+      <button class="icon-btn text-btn aa-btn" id="bookAaBtn" type="button" aria-label="Text settings: font, size, spacing and colors" aria-expanded="false" aria-controls="bookPanel"><span class="aa-small">A</span>A</button>
+    </header>
+    <footer class="reader-bar bottom book-bottom">
+      <div class="book-where"><span id="bookWhere"></span><span id="bookPage"></span></div>
+      <div class="book-progress">
+        <input type="range" id="bookSlider" min="0" max="1000" value="0" aria-label="Place in the book" />
+        <span class="page-num" id="bookPct"></span>
+      </div>
+    </footer>
+    <div class="book-panel" id="bookPanel" role="dialog" aria-label="Text settings" hidden></div>
+    <div class="book-panel toc" id="bookToc" role="dialog" aria-label="Contents" hidden></div>
+  </div>
+
   <!-- Sheet (menus, dialogs) -->
   <div class="scrim" id="scrim" hidden></div>
   <div class="sheet" id="sheet" role="dialog" aria-modal="true" hidden></div>
